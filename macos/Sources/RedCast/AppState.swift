@@ -120,7 +120,7 @@ final class AppState: ObservableObject {
             do {
                 try await systemCapture.start()
             } catch {
-                showError("Нет доступа к звуку системы. Включите «RedCast» в разделе «Запись экрана и системного звука», затем полностью перезапустите RedCast (значок волны в строке меню → Выйти). Ошибка: \(error.localizedDescription)",
+                showError("Нет доступа к звуку системы (macOS: «\(error.localizedDescription)»).",
                           permission: true)
                 return false
             }

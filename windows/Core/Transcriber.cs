@@ -175,9 +175,18 @@ public sealed class Transcriber : IDisposable
         "смотрите в следующ", "до новых встреч", "музыкальная заставка", "♪",
     };
 
+    /// <summary>Whole utterances Whisper invents on silence, breathing or clicks.</summary>
+    static readonly HashSet<string> PhantomExact = new()
+    {
+        "you", "thank you", "thanks", "bye", "okay", "ok", "so", "uh", "um", "hmm", "mm",
+        "thank you for watching", "спасибо за внимание", "дякую", "аплодисменты", "смех", "музыка",
+    };
+
     static bool IsHallucination(string text)
     {
         var t = text.ToLowerInvariant();
+        var core = t.Trim().Trim('.', ',', '!', '?', '…', ' ');
+        if (PhantomExact.Contains(core)) return true;
         if (Phantom.Any(t.Contains)) return true;
         return t.All(c => char.IsPunctuation(c) || char.IsWhiteSpace(c));
     }

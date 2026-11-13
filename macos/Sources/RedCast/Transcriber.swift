@@ -220,8 +220,16 @@ actor Transcriber {
         "смотрите в следующ", "до новых встреч", "музыкальная заставка", "[музыка]", "♪",
     ]
 
+    /// Whole utterances Whisper invents on silence, breathing or clicks.
+    private static let phantomExact: Set<String> = [
+        "you", "thank you", "thanks", "bye", "okay", "ok", "so", "uh", "um", "hmm", "mm",
+        "thank you for watching", "спасибо за внимание", "дякую", "аплодисменты", "смех", "музыка",
+    ]
+
     private static func isHallucination(_ text: String) -> Bool {
         let t = text.lowercased()
+        let core = t.trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.whitespaces))
+        if phantomExact.contains(core) { return true }
         if phantom.contains(where: { t.contains($0) }) { return true }
         // Pure punctuation / ellipsis
         if t.trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.whitespaces)).isEmpty { return true }

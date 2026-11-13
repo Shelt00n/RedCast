@@ -561,10 +561,21 @@ struct ErrorBanner: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(text).font(.system(size: 12)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                 if permission {
-                    Button("Открыть настройки «Запись экрана и системного звука»") {
-                        state.openPrivacySettings("Privacy_ScreenCapture")
+                    Text("Если переключатель уже включён: macOS запомнил прошлую версию RedCast. Нажмите «Сбросить разрешение» — RedCast перезапустится, и macOS спросит доступ заново. Разрешите его.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Button("Сбросить разрешение и перезапустить") {
+                            Updater.resetScreenPermissionAndRelaunch()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        Button("Открыть настройки") {
+                            state.openPrivacySettings("Privacy_ScreenCapture")
+                        }
+                        .controlSize(.small)
                     }
-                    .controlSize(.small)
                 }
             }
             Spacer()

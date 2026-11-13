@@ -223,9 +223,49 @@ enum Updater {
     }
 
     /// Full update of the running app. Returns only on failure (on success the app quits).
+    /// Last local-signing error (shown in Settings → Обновления), nil = OK.
+    static var lastSigningError: String? {
+        get { UserDefaults.standard.string(forKey: "signingError") }
+        set { UserDefaults.standard.set(newValue, forKey: "signingError") }
+    }
+
+    private static func signRecordingError(_ app: URL) {
+        do {
+            try sign(app)
+            lastSigningError = nil
+        } catch {
+            lastSigningError = error.localizedDescription
+        }
+    }
+
+    static var isRunningAppLocallySigned: Bool { isLocallySigned(Bundle.main.bundleURL) }
+
+    /// macOS keeps the old permission entry after the app's signature changed and silently denies.
+    /// Reset RedCast's «Screen & System Audio Recording» entry, make the signature permanent and relaunch,
+    /// so the user grants access once more — for good.
+    @MainActor
+    static func resetScreenPermissionAndRelaunch() {
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.redcast.app"
+        _ = try? run("/usr/bin/tccutil", ["reset", "ScreenCapture", bundleID])
+        if !isRunningAppLocallySigned {
+            UserDefaults.standard.removeObject(forKey: "stableSignatureAttempt")
+            if adoptStableSignatureIfNeeded() { return }   // relaunches with the permanent signature
+        }
+        relaunch()
+    }
+
+    @MainActor
+    static func relaunch() {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = ["-c", "sleep 1; open \"$0\"", Bundle.main.bundleURL.path]
+        try? p.run()
+        NSApp.terminate(nil)
+    }
+
     @MainActor
     static func installAndRelaunch(_ newApp: URL) throws {
-        try? sign(newApp)   // best effort: without it the app still works, permissions may need re-granting
+        signRecordingError(newApp)   // without it the app still works, but permissions would need re-granting
         let target = Bundle.main.bundleURL
         guard FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path) else {
             throw UpdateError.command("Нет прав на запись в \(target.deletingLastPathComponent().path). Переместите RedCast в «Программы».")
@@ -237,13 +277,15 @@ enum Updater {
 
     /// First launch of a build with the ad-hoc signature: re-sign a copy with the local
     /// certificate and swap it in, so the permissions granted from now on survive updates.
+    /// Returns true if a relaunch with the re-signed app was started.
     @MainActor
-    static func adoptStableSignatureIfNeeded() {
+    @discardableResult
+    static func adoptStableSignatureIfNeeded() -> Bool {
         let key = "stableSignatureAttempt"
         let app = Bundle.main.bundleURL
         guard app.pathExtension == "app",
               UserDefaults.standard.string(forKey: key) != currentVersion,
-              !isLocallySigned(app) else { return }
+              !isLocallySigned(app) else { return false }
         UserDefaults.standard.set(currentVersion, forKey: key)
         let copy = FileManager.default.temporaryDirectory
             .appendingPathComponent("redcast-resign-\(UUID().uuidString)/RedCast.app", isDirectory: true)
@@ -251,10 +293,14 @@ enum Updater {
             try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
             try run("/usr/bin/ditto", [app.path, copy.path])
             try sign(copy)
-            guard isLocallySigned(copy) else { return }
+            guard isLocallySigned(copy) else { lastSigningError = "подпись не применилась"; return false }
+            lastSigningError = nil
             try installAndRelaunch(copy)
+            return true
         } catch {
             // Not critical: the app keeps working with its original signature.
+            lastSigningError = error.localizedDescription
+            return false
         }
     }
 

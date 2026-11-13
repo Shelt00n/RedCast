@@ -189,6 +189,16 @@ struct SettingsPane: View {
             if !state.updateStatus.isEmpty {
                 hint(state.updateStatus)
             }
+            HStack {
+                if Updater.isRunningAppLocallySigned {
+                    hint("🔐 Подпись постоянная: разрешения macOS сохраняются после обновлений.")
+                } else {
+                    hint("⚠️ Подпись временная: после обновлений macOS может снова спрашивать доступ." + (Updater.lastSigningError.map { " Ошибка: \($0)" } ?? ""))
+                }
+                Spacer()
+                Button("Сбросить разрешение на звук") { Updater.resetScreenPermissionAndRelaunch() }
+                    .controlSize(.small)
+            }
             if let u = state.updateAvailable {
                 HStack {
                     Button {
