@@ -1,0 +1,16 @@
+# macOS / SwiftPM
+.DS_Store
+macos/.build/
+macos/build/
+macos/.swiftpm/
+*.xcodeproj/xcuserdata/
+
+# Windows / .NET
+windows/bin/
+windows/obj/
+windows/publish/
+*.user
+.vs/
+
+# Archives
+*.zip

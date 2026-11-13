@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <AssemblyName>RedCast</AssemblyName>
+    <RootNamespace>RedCast</RootNamespace>
+    <Product>RedCast</Product>
+    <Version>2.0.0</Version>
+    <ApplicationIcon>Assets\redcast.ico</ApplicationIcon>
+    <Company>RedCast</Company>
+    <Description>RedCast — ИИ-суфлёр для собеседований</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>ru;en</SatelliteResourceLanguages>
+    <DebugType>none</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets\redcast.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.1" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+  <!-- Keep only the Windows x64 speech runtimes (CPU + Vulkan GPU) -->
+  <Target Name="TrimRuntimes" AfterTargets="Publish">
+    <RemoveDir Directories="$(PublishDir)runtimes/win-arm64;$(PublishDir)runtimes/win-x86;$(PublishDir)runtimes/vulkan/linux-x64" />
+  </Target>
+</Project>
