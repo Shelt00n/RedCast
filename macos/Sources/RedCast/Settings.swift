@@ -114,6 +114,7 @@ final class AppSettings: ObservableObject {
     @Published var overlayOpacity: Double { didSet { d.set(overlayOpacity, forKey: "overlayOpacity") } }
     @Published var fontSize: Double { didSet { d.set(fontSize, forKey: "fontSize") } }
     @Published var hideFromScreenShare: Bool { didSet { d.set(hideFromScreenShare, forKey: "hideFromScreenShare") } }
+    @Published var showInDock: Bool { didSet { d.set(showInDock, forKey: "showInDock") } }
 
     private init() {
         backend = Backend(rawValue: d.string(forKey: "backend") ?? "") ?? .api
@@ -140,6 +141,7 @@ final class AppSettings: ObservableObject {
         overlayOpacity = d.object(forKey: "overlayOpacity") as? Double ?? 0.94
         fontSize = d.object(forKey: "fontSize") as? Double ?? 15
         hideFromScreenShare = d.object(forKey: "hideFromScreenShare") as? Bool ?? true
+        showInDock = d.object(forKey: "showInDock") as? Bool ?? false
     }
 }
 

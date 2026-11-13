@@ -77,7 +77,12 @@ public partial class MainWindow : Window
             Native.SetHiddenFromCapture(_hwnd, _s.HideFromCapture);
             HotKeys.Attach(_hwnd);
         };
-        Closing += (_, e) => { e.Cancel = true; Hide(); };
+        Closing += (_, e) =>
+        {
+            if (App.IsQuitting) return;
+            e.Cancel = true;
+            HideToTray();
+        };
         LocationChanged += (_, _) => SaveBounds();
         SizeChanged += (_, _) => SaveBounds();
 
@@ -231,6 +236,16 @@ public partial class MainWindow : Window
 
     public void ShowWindow()
     {
+        // Back on screen if it ended up outside (monitor unplugged, resolution changed).
+        var vl = SystemParameters.VirtualScreenLeft;
+        var vt = SystemParameters.VirtualScreenTop;
+        if (Left + 60 > vl + SystemParameters.VirtualScreenWidth || Left + Width < vl + 60 ||
+            Top < vt - 20 || Top + 40 > vt + SystemParameters.VirtualScreenHeight)
+        {
+            var wa = SystemParameters.WorkArea;
+            Left = wa.Right - Width - 24;
+            Top = wa.Top + 24;
+        }
         Show();
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Topmost = true;
@@ -246,7 +261,7 @@ public partial class MainWindow : Window
 
     public void ToggleVisible()
     {
-        if (IsVisible) Hide(); else ShowWindow();
+        if (IsVisible) HideToTray(); else ShowWindow();
     }
 
     public void ToggleCompact()
@@ -386,7 +401,14 @@ public partial class MainWindow : Window
     void Screenshot_Click(object s, RoutedEventArgs e) => _state.SolveScreenshot();
     void Clear_Click(object s, RoutedEventArgs e) => _state.Clear();
     void Compact_Click(object s, RoutedEventArgs e) => ToggleCompact();
-    void Hide_Click(object s, RoutedEventArgs e) => Hide();
+    void Hide_Click(object s, RoutedEventArgs e) => HideToTray();
+
+    /// <summary>✕ hides the window to the tray; RedCast keeps running.</summary>
+    public void HideToTray()
+    {
+        Hide();
+        ((App)Application.Current).ShowTrayHint();
+    }
     void DismissError_Click(object s, RoutedEventArgs e) => _state.ErrorMessage = null;
     void ModeAuto_Click(object s, RoutedEventArgs e) => _state.SetMode("auto");
     void ModeManual_Click(object s, RoutedEventArgs e) => _state.SetMode("manual");

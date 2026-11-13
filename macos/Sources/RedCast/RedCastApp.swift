@@ -52,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         MainActor.assumeIsolated {
             Updater.adoptStableSignatureIfNeeded()
+            OverlayController.applyDockPolicy()
             OverlayController.shared.show()
             HotKeyStore.shared.registerAll()
             Task { await AppState.shared.loadSpeechModel() }
@@ -61,6 +62,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor in await AppState.shared.checkForUpdates(silent: true) }
             }
         }
+    }
+
+    /// Opening RedCast again (Finder, Spotlight, Launchpad, Dock) shows the hidden window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MainActor.assumeIsolated {
+            OverlayController.shared.show()
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {

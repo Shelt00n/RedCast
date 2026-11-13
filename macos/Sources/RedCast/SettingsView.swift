@@ -153,6 +153,8 @@ struct SettingsPane: View {
     private var windowSection: some View {
         Section("4. Окно") {
             Toggle("Скрывать окно при демонстрации экрана", isOn: $settings.hideFromScreenShare)
+            Toggle("Показывать иконку в Dock", isOn: $settings.showInDock)
+            hint("Клик по иконке возвращает скрытое окно. Полезно, если значок в строке меню спрятан под «чёлкой» MacBook. Учтите: при показе всего экрана Dock виден собеседнику.")
             hint("Проверьте тестовым звонком: окна не должно быть видно у собеседника.")
             Slider(value: $settings.overlayOpacity, in: 0.4...1.0) { Text("Непрозрачность") }
             Slider(value: $settings.fontSize, in: 11...24, step: 1) { Text("Шрифт: \(Int(settings.fontSize))") }

@@ -93,7 +93,25 @@ final class OverlayController: ObservableObject {
                 .environmentObject(self))
         }
         applySharing()
+        keepOnScreen()
         panel?.orderFrontRegardless()
+    }
+
+    /// Bring the window back if it ended up outside every screen (monitor unplugged, resized…).
+    private func keepOnScreen() {
+        guard let panel, let main = NSScreen.main else { return }
+        let visible = NSScreen.screens.contains { $0.visibleFrame.intersects(panel.frame.insetBy(dx: 40, dy: 40)) }
+        if !visible {
+            let vf = main.visibleFrame
+            let size = NSSize(width: min(panel.frame.width, vf.width - 48), height: min(panel.frame.height, vf.height - 48))
+            panel.setFrame(NSRect(x: vf.maxX - size.width - 24, y: vf.maxY - size.height - 24, width: size.width, height: size.height),
+                           display: true)
+        }
+    }
+
+    /// Dock icon on/off (useful when the menu bar icon is hidden behind the MacBook notch).
+    static func applyDockPolicy() {
+        NSApp.setActivationPolicy(AppSettings.shared.showInDock ? .regular : .accessory)
     }
 
     func showSettings() {
@@ -108,8 +126,30 @@ final class OverlayController: ObservableObject {
         panel?.alphaValue = AppSettings.shared.overlayOpacity
     }
 
+    /// ✕: the window goes to the menu bar (and the Dock icon, if enabled). The app keeps running.
     func hide() {
         panel?.orderOut(nil)
+        let key = "hideHintShown"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        let combo = HotKeyStore.shared.combos[.toggleWindow]?.display ?? "⌃⌥H"
+        let alert = NSAlert()
+        alert.messageText = "RedCast свёрнут и продолжает работать"
+        alert.informativeText = """
+        Вернуть окно:
+        • \(combo) — в любой программе;
+        • значок волны в строке меню (на MacBook с «чёлкой» он может быть скрыт под вырезом камеры);
+        • снова открыть RedCast из «Программ», Spotlight или Launchpad.
+
+        Совсем закрыть: значок волны → «Выйти» или «Настройки» → «Выйти из RedCast».
+        """
+        alert.addButton(withTitle: "Понятно")
+        alert.addButton(withTitle: "Показывать иконку в Dock")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertSecondButtonReturn {
+            AppSettings.shared.showInDock = true
+            OverlayController.applyDockPolicy()
+        }
     }
 
     func toggleVisible() {
@@ -364,6 +404,7 @@ struct MainView: View {
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12)))
         .onChange(of: settings.hideFromScreenShare) { OverlayController.shared.applySharing() }
         .onChange(of: settings.overlayOpacity) { OverlayController.shared.applySharing() }
+        .onChange(of: settings.showInDock) { OverlayController.applyDockPolicy() }
     }
 }
 

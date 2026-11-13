@@ -16,6 +16,7 @@ public partial class App : Application
     NotifyIcon? _tray;
     MainWindow? _window;
     Mutex? _single;
+    EventWaitHandle? _showSignal;
 
     static string LogPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RedCast", "error.log");
@@ -33,10 +34,22 @@ public partial class App : Application
         _single = new Mutex(true, "RedCast.SingleInstance", out bool first);
         if (!first)
         {
-            MessageBox.Show("RedCast уже запущен — его значок в трее (справа внизу, возможно под стрелкой ^).", "RedCast");
+            // Already running (maybe hidden in the tray): ask that copy to show its window.
+            try
+            {
+                using var show = EventWaitHandle.OpenExisting("RedCast.ShowWindow");
+                show.Set();
+            }
+            catch { }
             Shutdown();
             return;
         }
+        _showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, "RedCast.ShowWindow");
+        new Thread(() =>
+        {
+            while (_showSignal.WaitOne())
+                Dispatcher.BeginInvoke(() => _window?.ShowWindow());
+        }) { IsBackground = true, Name = "redcast-show-signal" }.Start();
 
         DispatcherUnhandledException += (_, ex) =>
         {
@@ -109,8 +122,22 @@ public partial class App : Application
         return res != null ? new Icon(res.Stream, 32, 32) : SystemIcons.Application;
     }
 
+    /// <summary>First time the window is hidden: tell where it went.</summary>
+    public void ShowTrayHint()
+    {
+        var flag = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RedCast", "tray-hint-shown");
+        if (File.Exists(flag) || _tray == null) return;
+        try { Directory.CreateDirectory(Path.GetDirectoryName(flag)!); File.WriteAllText(flag, ""); } catch { }
+        _tray.ShowBalloonTip(6000, "RedCast свёрнут в трей",
+            "Он продолжает работать. Вернуть окно: клик по значку в трее, Ctrl+Alt+H или повторный запуск RedCast.exe. Выйти: правой кнопкой по значку → «Выйти».",
+            ToolTipIcon.Info);
+    }
+
+    public static bool IsQuitting { get; private set; }
+
     public void Quit()
     {
+        IsQuitting = true;
         try { AppState.Shared.Stop(); } catch { }
         AppSettings.Shared.Save();
         if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
