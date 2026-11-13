@@ -70,6 +70,7 @@ final class OverlayController: ObservableObject {
 
     private var panel: OverlayPanel?
     private var expandedFrame: NSRect?
+    var window: NSWindow? { panel }
 
     func show() {
         if panel == nil {
@@ -146,6 +147,53 @@ final class OverlayController: ObservableObject {
 }
 
 // MARK: - AppKit helpers
+
+/// Makes the empty background of a view drag the window.
+/// Pure SwiftUI gesture on the background layer: buttons on top keep receiving their clicks.
+struct WindowDraggable: ViewModifier {
+    @State private var startOrigin: NSPoint?
+    @State private var startMouse: NSPoint?
+
+    func body(content: Content) -> some View {
+        content.background(
+            Color.black.opacity(0.001)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { _ in
+                            guard let w = OverlayController.shared.window else { return }
+                            let mouse = NSEvent.mouseLocation
+                            if startOrigin == nil {
+                                startOrigin = w.frame.origin
+                                startMouse = mouse
+                            }
+                            guard let o = startOrigin, let m = startMouse else { return }
+                            w.setFrameOrigin(NSPoint(x: o.x + mouse.x - m.x, y: o.y + mouse.y - m.y))
+                        }
+                        .onEnded { _ in
+                            startOrigin = nil
+                            startMouse = nil
+                        }
+                )
+        )
+    }
+}
+
+extension View {
+    func windowDraggable() -> some View { modifier(WindowDraggable()) }
+}
+
+/// Small visible "grab here" handle.
+struct GrabHandle: View {
+    var body: some View {
+        Capsule()
+            .fill(Color.white.opacity(0.28))
+            .frame(width: 44, height: 5)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 3)
+            .help("Потяните, чтобы переместить окно")
+    }
+}
 
 /// Area that moves the window when dragged.
 struct WindowDragArea: NSViewRepresentable {
@@ -281,6 +329,7 @@ struct TopBar: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            GrabHandle().padding(.top, -6)
             HStack(spacing: 10) {
                 HStack(spacing: 10) {
                     StatusDot()
@@ -291,8 +340,6 @@ struct TopBar: View {
                     Spacer(minLength: 8)
                 }
                 .frame(maxWidth: .infinity, minHeight: 30)
-                .background(WindowDragArea())
-                .help("Перетащите, чтобы переместить окно")
                 Picker("", selection: $ui.tab) {
                     ForEach(MainTab.allCases) { Text($0.title).tag($0) }
                 }
@@ -325,8 +372,9 @@ struct TopBar: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.top, 12)
+        .padding(.top, 10)
         .padding(.bottom, 10)
+        .windowDraggable()
     }
 }
 
@@ -475,13 +523,13 @@ struct CompactBar: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                .background(WindowDragArea())
                 .help(state.answers.last?.text ?? "")
             WindowButton(symbol: "arrow.up.left.and.arrow.down.right", help: "Развернуть") { ui.toggleCompact() }
             WindowButton(symbol: "xmark", help: "Скрыть окно") { ui.hide() }
         }
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .windowDraggable()
     }
 }
 
@@ -512,6 +560,7 @@ struct HintsPane: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 5)
+            .windowDraggable()
             if showTranscript { transcript }
             inputBar
         }
