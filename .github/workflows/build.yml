@@ -18,8 +18,7 @@ permissions:
 jobs:
   macos:
     name: macOS app
-    # macos-14 usually has a shorter queue than macos-15; Xcode 16 is selected explicitly.
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
