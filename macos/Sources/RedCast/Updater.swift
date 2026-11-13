@@ -111,7 +111,16 @@ enum Updater {
         }
         try run("/usr/bin/security", ["unlock-keychain", "-p", keychainPassword, signingKeychain])
         // No auto-lock.
-        try? run("/usr/bin/security", ["set-keychain-settings", signingKeychain])
+        _ = try? run("/usr/bin/security", ["set-keychain-settings", signingKeychain])
+        // codesign looks for identities only in the user's keychain search list → add ours (keep the rest).
+        let list = (try? run("/usr/bin/security", ["list-keychains", "-d", "user"])) ?? ""
+        var paths = list.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+            .filter { !$0.isEmpty }
+        if !paths.contains(signingKeychain) {
+            paths.append(signingKeychain)
+            try run("/usr/bin/security", ["list-keychains", "-d", "user", "-s"] + paths)
+        }
     }
 
     /// SHA-1 of the local signing certificate; creates it on first use.
