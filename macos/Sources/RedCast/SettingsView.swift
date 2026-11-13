@@ -100,9 +100,49 @@ struct SettingsPane: View {
             hint("Авто — RedCast сам слышит вопросы и отвечает. По кнопкам — две кнопки «Интервьюер» и «Я»: первое нажатие начинает запись, второе даёт ответ. Никакой путаницы и ответов на старые вопросы.")
             Toggle("Авто: отвечать на каждую реплику интервьюера", isOn: $settings.autoAnswer)
             Toggle("Авто: распознавать мой микрофон (чтобы понимать, что я уже ответил)", isOn: $settings.captureMic)
+            micPicker
             Toggle("Эхоподавление микрофона (если вы без наушников)", isOn: $settings.echoCancellation)
             hint("Убирает из микрофона голос интервьюера из динамиков, чтобы его слова не записывались как ваши. Лучше всего — наушники.")
         }
+    }
+
+    // MARK: Microphone
+
+    private var micPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Picker("Микрофон", selection: $settings.micDeviceUID) {
+                    Text("Системный по умолчанию" + (AudioDevices.defaultInputName().map { " (\($0))" } ?? "")).tag("")
+                    ForEach(state.micDevices) { Text($0.name).tag($0.id) }
+                    if !settings.micDeviceUID.isEmpty && !state.micDevices.contains(where: { $0.id == settings.micDeviceUID }) {
+                        Text("Отключён: выбранный ранее микрофон").tag(settings.micDeviceUID)
+                    }
+                }
+                Button {
+                    state.refreshMicDevices()
+                } label: { Image(systemName: "arrow.clockwise") }
+                .help("Обновить список (подключили наушники или USB-микрофон)")
+            }
+            HStack(spacing: 8) {
+                Button(state.micTesting ? "Остановить" : "Проверить") { Task { await state.toggleMicTest() } }
+                    .controlSize(.small)
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.white.opacity(0.1))
+                        Capsule()
+                            .fill(state.micLevel > 0.85 ? Color.orange : Color.green)
+                            .frame(width: geo.size.width * CGFloat(state.micLevel))
+                            .animation(.linear(duration: 0.1), value: state.micLevel)
+                    }
+                }
+                .frame(height: 8)
+            }
+            hint(state.micTesting
+                 ? "Скажите что-нибудь: полоска должна двигаться. Если она стоит на месте, выберите другой микрофон."
+                 : "Нажмите «Проверить», чтобы убедиться, что RedCast вас слышит.")
+        }
+        .onAppear { state.refreshMicDevices() }
+        .onChange(of: settings.micDeviceUID) { state.micDeviceChanged() }
     }
 
     // MARK: Profile

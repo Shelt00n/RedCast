@@ -239,6 +239,20 @@
                         <TextBlock Style="{StaticResource Label}" Text="{Binding Settings.SilenceMs, StringFormat='Пауза конца вопроса: {0:0} мс'}"/>
                         <Slider Minimum="400" Maximum="1500" TickFrequency="50" IsSnapToTickEnabled="True" Value="{Binding Settings.SilenceMs}"/>
                         <TextBlock Style="{StaticResource Hint}" Text="Меньше — быстрее подсказка, но вопрос чаще разбивается на части."/>
+                        <TextBlock Style="{StaticResource Label}" Text="Микрофон"/>
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Content="↻" Margin="6,0,0,0"
+                                    ToolTip="Обновить список (подключили наушники или USB-микрофон)" Click="RefreshMics_Click"/>
+                            <ComboBox x:Name="MicCombo" ItemsSource="{Binding MicDevices}" SelectedValuePath="Id" DisplayMemberPath="Title"
+                                      SelectedValue="{Binding Settings.MicDeviceId}" SelectionChanged="Mic_Changed"/>
+                        </DockPanel>
+                        <DockPanel Margin="0,6,0,0">
+                            <Button DockPanel.Dock="Left" Style="{StaticResource Btn}" Padding="10,3" FontSize="12"
+                                    Content="{Binding MicTestLabel}" Click="MicTest_Click" Margin="0,0,8,0"/>
+                            <ProgressBar Height="8" Minimum="0" Maximum="100" Value="{Binding MicLevel}" VerticalAlignment="Center"
+                                         Foreground="{StaticResource Green}" Background="#1AFFFFFF" BorderThickness="0"/>
+                        </DockPanel>
+                        <TextBlock Style="{StaticResource Hint}" Text="Нажмите «Проверить» и скажите что-нибудь: полоска должна двигаться. Если она стоит на месте, выберите другой микрофон."/>
                         <CheckBox Content="Авто: отвечать на каждую реплику интервьюера" IsChecked="{Binding Settings.AutoAnswer}"/>
                         <CheckBox Content="Авто: распознавать мой микрофон (чтобы понимать, что я уже ответил)" IsChecked="{Binding Settings.CaptureMic}"/>
                         <TextBlock Style="{StaticResource Hint}" Text="Наденьте наушники — иначе микрофон слышит интервьюера из динамиков. Такие повторы RedCast отбрасывает, но с наушниками надёжнее всего."/>

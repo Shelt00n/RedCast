@@ -138,6 +138,10 @@ public sealed class AppSettings : Observable
     bool _captureMic = true;
     public bool CaptureMic { get => _captureMic; set => Set(ref _captureMic, value); }
 
+    string _micDeviceId = "";
+    /// <summary>WASAPI endpoint id of the chosen microphone; "" = Windows default.</summary>
+    public string MicDeviceId { get => _micDeviceId; set => Set(ref _micDeviceId, value); }
+
     bool _autoAnswer = true;
     public bool AutoAnswer { get => _autoAnswer; set => Set(ref _autoAnswer, value); }
 

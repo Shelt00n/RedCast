@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.2.2-e3141f" alt="2.2.2">
+  <img src="https://img.shields.io/badge/version-2.3.0-e3141f" alt="2.3.0">
   <img src="https://img.shields.io/badge/macOS-14%2B-black?logo=apple" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows" alt="Windows 10/11">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="MIT"></a>
@@ -35,6 +35,7 @@
 | 🙈 **Невидим в демонстрации** | Окно скрыто от Zoom, Meet и Teams. Нет иконки в панели задач или Dock, есть сквозные клики |
 | ⌨️ **Свои горячие клавиши** | Каждое действие можно переназначить |
 | 👤 **Ваш профиль** | Резюме, вакансия и ваши указания: ответы опираются на ваш реальный опыт |
+| 🎤 **Выбор микрофона** | Любой микрофон: встроенный, AirPods, USB. Есть индикатор уровня для проверки |
 | 🔇 **Различает голоса** | Интервьюер и вы слышатся раздельно. Эхоподавление и фильтр повторов работают даже без наушников |
 | 📝 **История** | Расшифровка и подсказки каждого собеседования сохраняются в Markdown |
 

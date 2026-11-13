@@ -45,6 +45,11 @@ final class AppState: ObservableObject {
     @Published var errorMessage: String?
     @Published var errorIsPermission = false
 
+    // Microphone
+    @Published var micLevel: Float = 0
+    @Published var micTesting = false
+    @Published var micDevices: [AudioInputDevice] = []
+
     // Updates
     @Published var updateAvailable: ReleaseInfo?
     @Published var updateStatus = ""
@@ -92,6 +97,7 @@ final class AppState: ObservableObject {
             Task { @MainActor in AppState.shared.captureFailed(error) }
         }
         micCapture.onSamples = { samples in micQ.async { micSeg.append(samples); micRec.append(samples) } }
+        micCapture.onLevel = { level in Task { @MainActor in AppState.shared.micLevel = level } }
 
         sysSeg.onSpeechStart = { Task { @MainActor in AppState.shared.speechStarted(.interviewer) } }
         sysSeg.onPartial = { audio in Task { @MainActor in await AppState.shared.handlePartial(.interviewer, audio) } }
@@ -128,6 +134,7 @@ final class AppState: ObservableObject {
         if mic && !micCapture.isRunning {
             if await MicCapture.requestAccess() {
                 micCapture.echoCancellation = settings.echoCancellation
+                micCapture.deviceUID = settings.micDeviceUID
                 do {
                     try micCapture.start()
                 } catch {
@@ -183,6 +190,34 @@ final class AppState: ObservableObject {
             modelProgress = nil
             modelStatus = "Ошибка модели речи"
             showError("Не удалось загрузить модель речи: \(error.localizedDescription). Проверьте интернет и нажмите «Скачать модель заново» во вкладке «Настройки».")
+        }
+    }
+
+    // MARK: - Microphone choice
+
+    func refreshMicDevices() {
+        micDevices = AudioDevices.inputs()
+    }
+
+    /// Microphone changed in Settings: switch right away if it is in use.
+    func micDeviceChanged() {
+        guard micCapture.isRunning else { return }
+        micCapture.stop()
+        Task {
+            _ = await ensureCaptures(system: false, mic: true, micRequired: false)
+        }
+    }
+
+    /// «Проверить»: listen to the microphone and show its level (without transcribing it).
+    func toggleMicTest() async {
+        if micTesting {
+            micTesting = false
+            if !isListening { micCapture.stop() }
+            return
+        }
+        errorMessage = nil
+        if await ensureCaptures(system: false, mic: true, micRequired: true) {
+            micTesting = true
         }
     }
 
@@ -293,6 +328,7 @@ final class AppState: ObservableObject {
         keepAlive?.invalidate()
         keepAlive = nil
         isListening = false
+        micTesting = false
         recording.removeAll()
         speaking.removeAll()
         partial.removeAll()

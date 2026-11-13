@@ -1,4 +1,6 @@
 import AVFoundation
+import AudioToolbox
+import CoreAudio
 import CoreMedia
 import ScreenCaptureKit
 
@@ -52,8 +54,10 @@ extension CMSampleBuffer {
 enum CaptureError: LocalizedError {
     case noDisplay
     case micDenied
+    case micNotFound
     var errorDescription: String? {
         switch self {
+        case .micNotFound: return "Выбранный микрофон не найден или занят. Выберите другой в «Настройки → Распознавание речи → Микрофон»."
         case .noDisplay: return "Не найден дисплей для захвата звука."
         case .micDenied: return "Нет доступа к микрофону (Системные настройки → Конфиденциальность → Микрофон)."
         }
@@ -112,20 +116,92 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
 }
 
 /// Microphone (the candidate's own voice).
+/// A microphone (any input device: built-in, AirPods, USB, audio interface…).
+struct AudioInputDevice: Identifiable, Hashable {
+    let id: String          // CoreAudio UID — stable across reboots
+    let name: String
+    let deviceID: AudioDeviceID
+}
+
+enum AudioDevices {
+    static func inputs() -> [AudioInputDevice] {
+        var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices,
+                                              mScope: kAudioObjectPropertyScopeGlobal,
+                                              mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        guard AudioObjectGetPropertyDataSize(system, &addr, 0, nil, &size) == noErr, size > 0 else { return [] }
+        var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(system, &addr, 0, nil, &size, &ids) == noErr else { return [] }
+        return ids.compactMap { id in
+            guard inputChannels(id) > 0,
+                  let uid = string(id, kAudioDevicePropertyDeviceUID),
+                  let name = string(id, kAudioObjectPropertyName),
+                  !uid.hasPrefix("CADefaultDeviceAggregate") else { return nil }
+            return AudioInputDevice(id: uid, name: name, deviceID: id)
+        }
+    }
+
+    static func defaultInputName() -> String? {
+        var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                                              mScope: kAudioObjectPropertyScopeGlobal,
+                                              mElement: kAudioObjectPropertyElementMain)
+        var id = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &id) == noErr,
+              id != 0 else { return nil }
+        return string(id, kAudioObjectPropertyName)
+    }
+
+    static func deviceID(forUID uid: String) -> AudioDeviceID? {
+        inputs().first { $0.id == uid }?.deviceID
+    }
+
+    private static func inputChannels(_ id: AudioDeviceID) -> Int {
+        var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreamConfiguration,
+                                              mScope: kAudioDevicePropertyScopeInput,
+                                              mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(id, &addr, 0, nil, &size) == noErr, size > 0 else { return 0 }
+        let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { raw.deallocate() }
+        guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, raw) == noErr else { return 0 }
+        let list = UnsafeMutableAudioBufferListPointer(raw.assumingMemoryBound(to: AudioBufferList.self))
+        return list.reduce(0) { $0 + Int($1.mNumberChannels) }
+    }
+
+    private static func string(_ id: AudioObjectID, _ selector: AudioObjectPropertySelector) -> String? {
+        var addr = AudioObjectPropertyAddress(mSelector: selector,
+                                              mScope: kAudioObjectPropertyScopeGlobal,
+                                              mElement: kAudioObjectPropertyElementMain)
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value) == noErr, let v = value else { return nil }
+        return v.takeRetainedValue() as String
+    }
+}
+
+/// Microphone (the candidate's own voice).
 final class MicCapture {
     var onSamples: (@Sendable ([Float]) -> Void)?
-    private let engine = AVAudioEngine()
+    /// Input level 0…1, about 10 times per second (for the meter in Settings).
+    var onLevel: (@Sendable (Float) -> Void)?
+    /// CoreAudio UID of the chosen microphone; empty = system default.
+    var deviceUID = ""
+    var echoCancellation = true
+    var isRunning: Bool { running }
+
+    private var engine = AVAudioEngine()
     private let resampler = Resampler()
     private var running = false
+    private var levelPeak: Float = 0
+    private var levelSamples = 0
 
     static func requestAccess() async -> Bool {
         await withCheckedContinuation { cont in
             AVCaptureDevice.requestAccess(for: .audio) { cont.resume(returning: $0) }
         }
     }
-
-    var echoCancellation = true
-    var isRunning: Bool { running }
 
     func start() throws {
         guard !running else { return }
@@ -143,6 +219,7 @@ final class MicCapture {
     }
 
     private func startEngine(voiceProcessing: Bool) throws {
+        engine = AVAudioEngine()          // fresh engine: the device may have changed
         let input = engine.inputNode
         if voiceProcessing {
             // Apple's acoustic echo cancellation: removes the interviewer's voice coming from the speakers.
@@ -151,18 +228,41 @@ final class MicCapture {
                 input.voiceProcessingOtherAudioDuckingConfiguration =
                     AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: false, duckingLevel: .min)
             }
-        } else if input.isVoiceProcessingEnabled {
-            try? input.setVoiceProcessingEnabled(false)
+        }
+        if !deviceUID.isEmpty {
+            guard let id = AudioDevices.deviceID(forUID: deviceUID) else { throw CaptureError.micNotFound }
+            guard let unit = input.audioUnit else { throw CaptureError.micNotFound }
+            var dev = id
+            let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                              &dev, UInt32(MemoryLayout<AudioDeviceID>.size))
+            guard status == noErr else { throw CaptureError.micNotFound }
         }
         let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw CaptureError.micNotFound }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             guard let self else { return }
             let samples = self.resampler.convert(buffer)
-            if !samples.isEmpty { self.onSamples?(samples) }
+            guard !samples.isEmpty else { return }
+            self.onSamples?(samples)
+            self.reportLevel(samples)
         }
         engine.prepare()
         try engine.start()
         running = true
+    }
+
+    private func reportLevel(_ samples: [Float]) {
+        var sum: Float = 0
+        for s in samples { sum += s * s }
+        let rms = (sum / Float(samples.count)).squareRoot()
+        levelPeak = max(levelPeak, rms)
+        levelSamples += samples.count
+        if levelSamples >= 1_600 {                      // ~100 ms at 16 kHz
+            let level = min(1, levelPeak * 8)
+            onLevel?(level)
+            levelPeak = 0
+            levelSamples = 0
+        }
     }
 
     func stop() {
@@ -170,5 +270,6 @@ final class MicCapture {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         running = false
+        onLevel?(0)
     }
 }

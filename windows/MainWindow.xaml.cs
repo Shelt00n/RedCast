@@ -299,7 +299,11 @@ public partial class MainWindow : Window
         SettingsView.Visibility = settings ? Visibility.Visible : Visibility.Collapsed;
         TabHints.Background = settings ? Neutral : Selected;
         TabSettings.Background = settings ? Selected : Neutral;
-        if (settings) BuildHotKeyRows();
+        if (settings)
+        {
+            BuildHotKeyRows();
+            _state.RefreshMicDevices();
+        }
     }
 
     void OnHotKey(HotKeyAction a)
@@ -442,6 +446,13 @@ public partial class MainWindow : Window
         Height = Math.Min(h, wa.Height - 16);
         Left = Math.Min(Math.Max(wa.Left + 8, Left), wa.Right - Width - 8);
         Top = preset == "tall" ? wa.Top + 8 : Math.Min(Math.Max(wa.Top + 8, Top), wa.Bottom - Height - 8);
+    }
+
+    void RefreshMics_Click(object s, RoutedEventArgs e) => _state.RefreshMicDevices();
+    void MicTest_Click(object s, RoutedEventArgs e) => _state.ToggleMicTest();
+    void Mic_Changed(object s, SelectionChangedEventArgs e)
+    {
+        if (IsLoaded && e.AddedItems.Count > 0 && e.RemovedItems.Count > 0) _state.MicDeviceChanged();
     }
 
     void CheckUpdates_Click(object s, RoutedEventArgs e) => _ = _state.CheckForUpdates(silent: false);

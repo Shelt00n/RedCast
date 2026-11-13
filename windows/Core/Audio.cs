@@ -82,6 +82,13 @@ public sealed class AudioSource : IDisposable
 {
     public event Action<float[]>? Samples;
     public event Action<string>? Failed;
+    /// <summary>Input level 0…1 about 10 times per second (meter in Settings).</summary>
+    public event Action<float>? Level;
+    /// <summary>Microphone endpoint id; "" = Windows default.</summary>
+    public string DeviceId { get; set; } = "";
+
+    float _peak;
+    int _levelCount;
 
     readonly bool _loopback;
     IWaveIn? _capture;
@@ -99,7 +106,7 @@ public sealed class AudioSource : IDisposable
     public void Start()
     {
         if (_capture != null) return;
-        IWaveIn cap = _loopback ? new WasapiLoopbackCapture() : new WasapiCapture { ShareMode = AudioClientShareMode.Shared };
+        IWaveIn cap = _loopback ? new WasapiLoopbackCapture() : CreateMic();
         var buffer = new BufferedWaveProvider(cap.WaveFormat)
         {
             DiscardOnBufferOverflow = true,
@@ -136,6 +143,45 @@ public sealed class AudioSource : IDisposable
             _silenceTimer = new Timer(_ => InjectSilence(), null, 100, 100);
     }
 
+    WasapiCapture CreateMic()
+    {
+        if (!string.IsNullOrEmpty(DeviceId))
+        {
+            using var en = new MMDeviceEnumerator();
+            MMDevice dev;
+            try { dev = en.GetDevice(DeviceId); }
+            catch { throw new InvalidOperationException("Выбранный микрофон не найден. Выберите другой в «Настройки → Распознавание речи → Микрофон»."); }
+            if (dev.State != DeviceState.Active)
+                throw new InvalidOperationException("Выбранный микрофон отключён. Выберите другой в настройках.");
+            return new WasapiCapture(dev) { ShareMode = AudioClientShareMode.Shared };
+        }
+        return new WasapiCapture { ShareMode = AudioClientShareMode.Shared };
+    }
+
+    /// <summary>Active microphones: (id, name).</summary>
+    public static System.Collections.Generic.List<(string Id, string Name)> Microphones()
+    {
+        var list = new System.Collections.Generic.List<(string, string)>();
+        try
+        {
+            using var en = new MMDeviceEnumerator();
+            foreach (var d in en.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active))
+                list.Add((d.ID, d.FriendlyName));
+        }
+        catch { }
+        return list;
+    }
+
+    public static string? DefaultMicrophoneName()
+    {
+        try
+        {
+            using var en = new MMDeviceEnumerator();
+            return en.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications).FriendlyName;
+        }
+        catch { return null; }
+    }
+
     void Pump()
     {
         if (_pipeline == null) return;
@@ -146,6 +192,21 @@ public sealed class AudioSource : IDisposable
             var chunk = new float[n];
             Array.Copy(buf, chunk, n);
             Samples?.Invoke(chunk);
+            if (!_loopback) ReportLevel(chunk);
+        }
+    }
+
+    void ReportLevel(float[] chunk)
+    {
+        double sum = 0;
+        foreach (var s in chunk) sum += s * s;
+        _peak = Math.Max(_peak, (float)Math.Sqrt(sum / chunk.Length));
+        _levelCount += chunk.Length;
+        if (_levelCount >= 1600)
+        {
+            Level?.Invoke(Math.Min(1f, _peak * 8));
+            _peak = 0;
+            _levelCount = 0;
         }
     }
 
@@ -178,6 +239,7 @@ public sealed class AudioSource : IDisposable
         // Outside the lock: Dispose joins the capture thread, which may be waiting for the lock.
         try { cap?.StopRecording(); } catch { }
         try { cap?.Dispose(); } catch { }
+        if (!_loopback) Level?.Invoke(0);
     }
 
     public void Dispose() => Stop();

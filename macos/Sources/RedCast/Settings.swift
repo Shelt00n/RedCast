@@ -100,6 +100,8 @@ final class AppSettings: ObservableObject {
     @Published var vocabulary: String { didSet { d.set(vocabulary, forKey: "vocabulary") } }
     @Published var silenceMs: Double { didSet { d.set(silenceMs, forKey: "silenceMs") } }
     @Published var captureMic: Bool { didSet { d.set(captureMic, forKey: "captureMic") } }
+    /// CoreAudio UID of the chosen microphone; "" = system default.
+    @Published var micDeviceUID: String { didSet { d.set(micDeviceUID, forKey: "micDeviceUID") } }
     @Published var autoAnswer: Bool { didSet { d.set(autoAnswer, forKey: "autoAnswer") } }
     @Published var listenMode: ListenMode { didSet { d.set(listenMode.rawValue, forKey: "listenMode") } }
     @Published var echoCancellation: Bool { didSet { d.set(echoCancellation, forKey: "echoCancellation") } }
@@ -129,6 +131,7 @@ final class AppSettings: ObservableObject {
         vocabulary = d.string(forKey: "vocabulary") ?? "Собеседование. Kubernetes, Docker, PostgreSQL, Kafka, Redis, React, TypeScript, Python, Java, Go, Swift, REST, gRPC, CI/CD, microservices, SOLID, Big O."
         silenceMs = d.object(forKey: "silenceMs") as? Double ?? 700
         captureMic = d.object(forKey: "captureMic") as? Bool ?? true
+        micDeviceUID = d.string(forKey: "micDeviceUID") ?? ""
         autoAnswer = d.object(forKey: "autoAnswer") as? Bool ?? true
         listenMode = ListenMode(rawValue: d.string(forKey: "listenMode") ?? "") ?? .auto
         echoCancellation = d.object(forKey: "echoCancellation") as? Bool ?? true

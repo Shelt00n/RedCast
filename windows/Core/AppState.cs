@@ -99,6 +99,7 @@ public sealed class AppState : Observable
         _mic.Samples += s => _micQ.Post(() => { _micSeg.Append(s); _micRec.Append(s); });
         _system.Failed += m => Ui(() => { Stop(); ShowError("Захват звука остановлен: " + m); });
         _mic.Failed += m => Ui(() => ShowError("Микрофон: " + m));
+        _mic.Level += l => Ui(() => MicLevel = l * 100);
 
         _sysSeg.OnSpeechStart = () => Ui(() => InterviewerSpeaking = true);
         _sysSeg.OnPartial = a => Ui(() => _ = HandlePartial(Speaker.Interviewer, a));
@@ -152,6 +153,50 @@ public sealed class AppState : Observable
     public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
 
     public void ShowError(string text) => ErrorMessage = text;
+
+    // MARK: - Microphone choice
+
+    public ObservableCollection<Option> MicDevices { get; } = new();
+
+    double _micLevel;
+    public double MicLevel { get => _micLevel; set => Set(ref _micLevel, value); }
+
+    bool _micTesting;
+    public bool MicTesting { get => _micTesting; set { if (Set(ref _micTesting, value)) OnChanged(nameof(MicTestLabel)); } }
+    public string MicTestLabel => MicTesting ? "Остановить" : "Проверить";
+
+    public void RefreshMicDevices()
+    {
+        var selected = Settings.MicDeviceId;
+        MicDevices.Clear();
+        var def = AudioSource.DefaultMicrophoneName();
+        MicDevices.Add(new Option("", "Микрофон Windows по умолчанию" + (def != null ? $" ({def})" : "")));
+        foreach (var (id, name) in AudioSource.Microphones()) MicDevices.Add(new Option(id, name));
+        if (selected.Length > 0 && MicDevices.All(o => o.Id != selected))
+            MicDevices.Add(new Option(selected, "Отключён: выбранный ранее микрофон"));
+        Settings.MicDeviceId = selected;
+    }
+
+    /// <summary>Microphone changed in Settings: switch right away if it is in use.</summary>
+    public void MicDeviceChanged()
+    {
+        if (!_mic.IsRunning) return;
+        _mic.Stop();
+        EnsureCaptures(false, true, false);
+    }
+
+    /// <summary>«Проверить»: listen to the microphone and show its level (without transcribing).</summary>
+    public void ToggleMicTest()
+    {
+        if (MicTesting)
+        {
+            MicTesting = false;
+            if (!IsListening) _mic.Stop();
+            return;
+        }
+        ErrorMessage = null;
+        if (EnsureCaptures(false, true, true)) MicTesting = true;
+    }
 
     // MARK: - Updates
 
@@ -276,6 +321,7 @@ public sealed class AppState : Observable
         }
         if (mic && !_mic.IsRunning)
         {
+            _mic.DeviceId = Settings.MicDeviceId;
             try { _mic.Start(); }
             catch (Exception ex)
             {
@@ -353,6 +399,7 @@ public sealed class AppState : Observable
         SetAutoSegmentation(false);
         _keepAlive?.Stop();
         IsListening = false;
+        MicTesting = false;
         RecordingInterviewer = RecordingMe = false;
         InterviewerSpeaking = false;
         PartialInterviewer = PartialMe = "";
