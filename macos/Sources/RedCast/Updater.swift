@@ -96,8 +96,27 @@ enum Updater {
 
     // MARK: - Stable local code signature
 
+    /// RedCast keeps its certificate in its own keychain with a fixed password, so signing never
+    /// shows a keychain prompt (the login keychain would ask «codesign wants to use the key…»).
+    static var signingKeychain: String {
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/RedCast", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("signing.keychain-db").path
+    }
+    private static let keychainPassword = "redcast-local-signing"
+
+    private static func unlockKeychain() throws {
+        if !FileManager.default.fileExists(atPath: signingKeychain) {
+            try run("/usr/bin/security", ["create-keychain", "-p", keychainPassword, signingKeychain])
+        }
+        try run("/usr/bin/security", ["unlock-keychain", "-p", keychainPassword, signingKeychain])
+        // No auto-lock.
+        try? run("/usr/bin/security", ["set-keychain-settings", signingKeychain])
+    }
+
     /// SHA-1 of the local signing certificate; creates it on first use.
     static func signingIdentity() throws -> String {
+        try unlockKeychain()
         if let h = findIdentityHash() { return h }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("redcast-sign-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -122,18 +141,17 @@ enum Updater {
                                      "-days", "3650", "-config", cfg.path])
         try run("/usr/bin/openssl", ["pkcs12", "-export", "-inkey", key, "-in", cert, "-out", p12,
                                      "-passout", "pass:redcast", "-name", signingName])
-        try run("/usr/bin/security", ["import", p12, "-k", loginKeychain, "-P", "redcast",
+        try run("/usr/bin/security", ["import", p12, "-k", signingKeychain, "-P", "redcast",
                                       "-T", "/usr/bin/codesign", "-T", "/usr/bin/security"])
+        // Allow codesign to use the key without any dialog.
+        try run("/usr/bin/security", ["set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s",
+                                      "-k", keychainPassword, signingKeychain])
         guard let h = findIdentityHash() else { throw UpdateError.command("Не удалось создать сертификат подписи.") }
         return h
     }
 
-    private static var loginKeychain: String {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Keychains/login.keychain-db").path
-    }
-
     private static func findIdentityHash() -> String? {
-        guard let out = try? run("/usr/bin/security", ["find-certificate", "-c", signingName, "-Z", loginKeychain]) else { return nil }
+        guard let out = try? run("/usr/bin/security", ["find-certificate", "-c", signingName, "-Z", signingKeychain]) else { return nil }
         for line in out.split(separator: "\n") where line.hasPrefix("SHA-1 hash:") {
             return line.replacingOccurrences(of: "SHA-1 hash:", with: "").trimmingCharacters(in: .whitespaces)
         }
@@ -142,12 +160,17 @@ enum Updater {
 
     static func sign(_ app: URL) throws {
         let id = try signingIdentity()
-        try run("/usr/bin/codesign", ["--force", "--deep", "--sign", id, app.path])
+        try run("/usr/bin/codesign", ["--force", "--deep", "--keychain", signingKeychain, "--sign", id, app.path])
     }
 
     static func isLocallySigned(_ app: URL) -> Bool {
         guard let out = try? run("/usr/bin/codesign", ["-dvv", app.path]) else { return false }
         return out.contains("Authority=\(signingName)")
+    }
+
+    /// The requirement macOS uses to recognise the app (and keep its permissions).
+    static func designatedRequirement(_ app: URL) -> String {
+        (try? run("/usr/bin/codesign", ["-d", "-r-", app.path])) ?? ""
     }
 
     // MARK: - Install
@@ -227,17 +250,31 @@ enum Updater {
     // MARK: - Helpers
 
     @discardableResult
-    static func run(_ tool: String, _ args: [String]) throws -> String {
+    static func run(_ tool: String, _ args: [String], timeout: TimeInterval = 90) throws -> String {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: tool)
         p.arguments = args
+        p.standardInput = FileHandle.nullDevice
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe
+        final class Output: @unchecked Sendable { var data = Data() }
+        let output = Output()
+        let reader = DispatchGroup()
+        reader.enter()
+        DispatchQueue.global().async {
+            output.data = pipe.fileHandleForReading.readDataToEndOfFile()
+            reader.leave()
+        }
         try p.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        let out = String(data: data, encoding: .utf8) ?? ""
+        let finished = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in finished.signal() }
+        if finished.wait(timeout: .now() + timeout) == .timedOut {
+            p.terminate()
+            throw UpdateError.command("\(URL(fileURLWithPath: tool).lastPathComponent): не ответил за \(Int(timeout)) с")
+        }
+        _ = reader.wait(timeout: .now() + 5)
+        let out = String(data: output.data, encoding: .utf8) ?? ""
         guard p.terminationStatus == 0 else {
             throw UpdateError.command("\(URL(fileURLWithPath: tool).lastPathComponent): \(out.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
@@ -268,6 +305,11 @@ enum Updater {
             guard isLocallySigned(newApp) else { throw UpdateError.command("local signature not applied") }
             try run("/usr/bin/codesign", ["--verify", "--deep", newApp.path])
             log("A1 signed with «\(signingName)», signature valid ✓")
+            let dr = designatedRequirement(newApp)
+            log("   designated requirement: \(dr.trimmingCharacters(in: .whitespacesAndNewlines))")
+            guard dr.contains("certificate"), !dr.contains("cdhash") else {
+                throw UpdateError.command("requirement is not certificate-based → permissions would reset")
+            }
             let again = try signingIdentity()
             log("A2 identity is reused (\(again.prefix(8))…) ✓")
             let status = try install(newApp: newApp, target: target, waitForPID: 999_999, relaunch: false, wait: true)
