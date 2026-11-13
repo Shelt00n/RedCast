@@ -18,12 +18,17 @@ permissions:
 jobs:
   macos:
     name: macOS app
-    runs-on: macos-15
+    # macos-14 usually has a shorter queue than macos-15; Xcode 16 is selected explicitly.
+    runs-on: macos-14
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
       - name: Toolchain
-        run: swift --version
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$XC" ]; then sudo xcode-select -s "$XC"; fi
+          swift --version
 
       - name: Check version matches release
         if: github.event_name == 'workflow_dispatch' && inputs.version != ''
@@ -55,6 +60,7 @@ jobs:
   windows:
     name: Windows app
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
