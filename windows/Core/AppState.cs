@@ -31,7 +31,7 @@ public sealed class AnswerItem : Observable
     public string Question { get; }
 
     string _text = "";
-    public string Text { get => _text; set { if (Set(ref _text, value)) OnChanged(nameof(ShowSpinner)); } }
+    public string Text { get => _text; set { if (Set(ref _text, value)) { OnChanged(nameof(ShowSpinner)); OnChanged(nameof(Preview)); } } }
 
     bool _streaming = true;
     public bool IsStreaming { get => _streaming; set { if (Set(ref _streaming, value)) OnChanged(nameof(ShowSpinner)); } }
@@ -44,6 +44,19 @@ public sealed class AnswerItem : Observable
     public string Latency { get => _latency; set => Set(ref _latency, value); }
 
     public bool ShowSpinner => IsStreaming && Text.Length == 0;
+
+    bool _expanded = true;
+    public bool IsExpanded { get => _expanded; set { if (Set(ref _expanded, value)) OnChanged(nameof(Chevron)); } }
+    public string Chevron => IsExpanded ? "▾" : "▸";
+
+    public string Preview
+    {
+        get
+        {
+            var line = Text.Split('\n').FirstOrDefault(l => l.Trim().Length > 0) ?? "";
+            return line.Replace("**", "").Replace("#", "").Trim();
+        }
+    }
 }
 
 /// <summary>The whole session logic (view model of the main window).</summary>
@@ -546,6 +559,8 @@ public sealed class AppState : Observable
         foreach (var a in Answers) a.IsStreaming = false;
 
         var item = new AnswerItem(question);
+        // Older answers fold into one line so the new one gets the whole window.
+        foreach (var a in Answers) a.IsExpanded = false;
         var idx = replaceCurrent && _currentAnswerId != null ? Answers.ToList().FindIndex(a => a.Id == _currentAnswerId) : -1;
         if (idx >= 0) Answers[idx] = item;
         else

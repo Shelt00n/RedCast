@@ -9,6 +9,11 @@
         Width="560" Height="720" MinWidth="440" MinHeight="54"
         FontFamily="Segoe UI" Foreground="{StaticResource Fg}"
         Opacity="{Binding Settings.Opacity}">
+    <!-- Resize from every edge and corner (the window has no system frame) -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="0" ResizeBorderThickness="7" GlassFrameThickness="0"
+                      CornerRadius="12" UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
     <Border CornerRadius="12" Background="{StaticResource Bg}" BorderBrush="{StaticResource Line}" BorderThickness="1">
         <Grid>
             <!-- ========== Compact bar ========== -->
@@ -135,18 +140,25 @@
                     <ScrollViewer x:Name="AnswersScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="14,0">
                         <StackPanel>
                             <TextBlock x:Name="EmptyHint" TextWrapping="Wrap" Foreground="{StaticResource Fg2}" FontSize="13" Margin="0,4,0,0"/>
-                            <ItemsControl ItemsSource="{Binding Answers}">
+                            <ItemsControl ItemsSource="{Binding Answers}" Margin="0,0,0,24">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border Background="{StaticResource Panel}" CornerRadius="10" Padding="12" Margin="0,0,0,12">
+                                        <Border Background="{StaticResource Panel}" CornerRadius="10" Padding="12" Margin="0,0,0,10">
                                             <StackPanel>
-                                                <DockPanel Margin="0,0,0,6">
+                                                <DockPanel Margin="0,0,0,6" Background="Transparent" Cursor="Hand"
+                                                           MouseLeftButtonUp="AnswerHeader_Click" ToolTip="Свернуть / развернуть ответ">
+                                                    <TextBlock DockPanel.Dock="Left" Text="{Binding Chevron}" FontSize="10" Foreground="{StaticResource Fg2}"
+                                                               Margin="0,1,6,0" VerticalAlignment="Top"/>
                                                     <TextBlock DockPanel.Dock="Right" Text="{Binding Latency}" FontSize="10.5" Foreground="{StaticResource Fg2}" Margin="8,0,0,0"/>
-                                                    <TextBlock Text="{Binding Question}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource Fg2}"/>
+                                                    <TextBlock Text="{Binding Question}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource Fg2}"
+                                                               MaxHeight="64" TextTrimming="CharacterEllipsis"/>
                                                 </DockPanel>
                                                 <ProgressBar IsIndeterminate="True" Height="3" Margin="0,2,0,4"
                                                              Visibility="{Binding ShowSpinner, Converter={StaticResource BoolToVis}}"/>
-                                                <ContentControl ui:Markdown.Text="{Binding Text}" Foreground="{StaticResource Fg}"/>
+                                                <TextBlock Text="{Binding Preview}" FontWeight="SemiBold" FontSize="13.5" TextTrimming="CharacterEllipsis"
+                                                           Visibility="{Binding IsExpanded, Converter={StaticResource InvBoolToVis}}"/>
+                                                <ContentControl ui:Markdown.Text="{Binding Text}" Foreground="{StaticResource Fg}"
+                                                                Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}"/>
                                                 <TextBlock Text="{Binding Error}" Foreground="#FFFF6B6B" TextWrapping="Wrap" FontSize="12"
                                                            Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}"/>
                                             </StackPanel>

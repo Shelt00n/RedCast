@@ -398,6 +398,30 @@ public partial class MainWindow : Window
     void Backend_Changed(object s, SelectionChangedEventArgs e) => UpdateBackendPanels();
     void ApiKey_Changed(object s, RoutedEventArgs e) => _s.ApiKey = ApiKeyBox.Password;
 
+    void AnswerHeader_Click(object s, MouseButtonEventArgs e)
+    {
+        if ((s as FrameworkElement)?.DataContext is AnswerItem a) a.IsExpanded = !a.IsExpanded;
+    }
+
+    /// Quick window sizes (tray → «Размер окна»).
+    public void SetSize(string preset)
+    {
+        if (_compact) ToggleCompact();
+        ShowWindow();
+        var wa = SystemParameters.WorkArea;
+        (double w, double h) = preset switch
+        {
+            "small" => (420.0, 480.0),
+            "large" => (760.0, 900.0),
+            "tall" => (Math.Max(Width, 560), wa.Height - 16),
+            _ => (560.0, 720.0),
+        };
+        Width = Math.Min(w, wa.Width - 16);
+        Height = Math.Min(h, wa.Height - 16);
+        Left = Math.Min(Math.Max(wa.Left + 8, Left), wa.Right - Width - 8);
+        Top = preset == "tall" ? wa.Top + 8 : Math.Min(Math.Max(wa.Top + 8, Top), wa.Bottom - Height - 8);
+    }
+
     void CheckUpdates_Click(object s, RoutedEventArgs e) => _ = _state.CheckForUpdates(silent: false);
     void InstallUpdate_Click(object s, RoutedEventArgs e) => _ = _state.InstallUpdate();
 

@@ -19,14 +19,26 @@ final class OverlayPanel: NSPanel {
         backgroundColor = .clear
         isOpaque = false
         hasShadow = true
-        minSize = NSSize(width: 420, height: 360)
-        contentView = NSHostingView(rootView: rootView)
+        minSize = OverlayPanel.normalMinSize
+        // Content + invisible resize zones on every edge and corner (AppKit views on top,
+        // so they always get the mouse, unlike a SwiftUI overlay).
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 700))
+        let hosting = NSHostingView(rootView: rootView)
+        hosting.frame = container.bounds
+        hosting.autoresizingMask = [.width, .height]
+        container.addSubview(hosting)
+        for edge in ResizeHandle.Edge.allCases {
+            container.addSubview(ResizeHandle(edge: edge, in: container.bounds))
+        }
+        contentView = container
         if !setFrameUsingName("RedCastMain"), let screen = NSScreen.main {
             setFrameOrigin(NSPoint(x: screen.visibleFrame.maxX - frame.width - 24,
                                    y: screen.visibleFrame.maxY - frame.height - 24))
         }
         setFrameAutosaveName("RedCastMain")
     }
+
+    static let normalMinSize = NSSize(width: 360, height: 300)
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -110,14 +122,53 @@ final class OverlayController: ObservableObject {
         if compact {
             let target = expandedFrame ?? NSRect(x: panel.frame.minX, y: panel.frame.maxY - 700, width: 560, height: 700)
             compact = false
+            panel.minSize = OverlayPanel.normalMinSize
+            panel.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
             panel.setFrame(NSRect(x: panel.frame.minX, y: panel.frame.maxY - target.height,
                                   width: target.width, height: target.height), display: true, animate: true)
         } else {
             expandedFrame = panel.frame
             compact = true
-            panel.setFrame(NSRect(x: panel.frame.minX, y: panel.frame.maxY - 52, width: 520, height: 52),
+            panel.minSize = NSSize(width: 320, height: 52)
+            panel.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: 52)
+            panel.setFrame(NSRect(x: panel.frame.minX, y: panel.frame.maxY - 52, width: max(panel.frame.width, 520), height: 52),
                            display: true, animate: true)
         }
+    }
+
+    enum SizePreset: String, CaseIterable, Identifiable {
+        case small, medium, large, tall
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .small: return "Маленькое"
+            case .medium: return "Среднее"
+            case .large: return "Большое"
+            case .tall: return "На всю высоту экрана"
+            }
+        }
+    }
+
+    /// Quick window sizes (menu bar → «Размер окна»). Keeps the window on screen.
+    func setSize(_ preset: SizePreset) {
+        if compact { toggleCompact() }
+        show()
+        guard let panel, let screen = panel.screen ?? NSScreen.main else { return }
+        let vf = screen.visibleFrame
+        var size: NSSize
+        switch preset {
+        case .small: size = NSSize(width: 420, height: 480)
+        case .medium: size = NSSize(width: 560, height: 720)
+        case .large: size = NSSize(width: 760, height: 900)
+        case .tall: size = NSSize(width: max(panel.frame.width, 560), height: vf.height - 16)
+        }
+        size.width = min(size.width, vf.width - 16)
+        size.height = min(size.height, vf.height - 16)
+        var origin = NSPoint(x: panel.frame.minX, y: panel.frame.maxY - size.height)
+        origin.x = min(max(vf.minX + 8, origin.x), vf.maxX - size.width - 8)
+        origin.y = min(max(vf.minY + 8, origin.y), vf.maxY - size.height - 8)
+        if preset == .tall { origin.y = vf.minY + 8 }
+        panel.setFrame(NSRect(origin: origin, size: size), display: true, animate: true)
     }
 
     func toggleClickThrough() {
@@ -205,45 +256,80 @@ struct WindowDragArea: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
-/// Bottom-right corner handle that resizes the borderless window.
-struct ResizeGrip: NSViewRepresentable {
-    final class GripView: NSView {
-        private var startMouse = NSPoint.zero
-        private var startFrame = NSRect.zero
+/// Invisible strip along a window edge / corner that resizes the borderless window.
+final class ResizeHandle: NSView {
+    enum Edge: CaseIterable { case left, right, top, bottom, topLeft, topRight, bottomLeft, bottomRight }
 
-        override func mouseDown(with event: NSEvent) {
-            startMouse = NSEvent.mouseLocation
-            startFrame = window?.frame ?? .zero
-        }
+    static let thickness: CGFloat = 6
+    static let corner: CGFloat = 14
 
-        override func mouseDragged(with event: NSEvent) {
-            guard let w = window else { return }
-            let p = NSEvent.mouseLocation
-            var f = startFrame
-            f.size.width = max(w.minSize.width, startFrame.width + (p.x - startMouse.x))
-            f.size.height = max(w.minSize.height, startFrame.height - (p.y - startMouse.y))
-            f.origin.y = startFrame.maxY - f.height
-            w.setFrame(f, display: true)
-        }
+    let edge: Edge
+    private var startMouse = NSPoint.zero
+    private var startFrame = NSRect.zero
 
-        override func resetCursorRects() {
-            addCursorRect(bounds, cursor: .crosshair)
+    init(edge: Edge, in b: NSRect) {
+        self.edge = edge
+        let t = ResizeHandle.thickness, c = ResizeHandle.corner
+        let frame: NSRect
+        let mask: NSView.AutoresizingMask
+        switch edge {
+        case .left: frame = NSRect(x: 0, y: c, width: t, height: b.height - 2 * c); mask = [.height, .maxXMargin]
+        case .right: frame = NSRect(x: b.width - t, y: c, width: t, height: b.height - 2 * c); mask = [.height, .minXMargin]
+        case .bottom: frame = NSRect(x: c, y: 0, width: b.width - 2 * c, height: t); mask = [.width, .maxYMargin]
+        case .top: frame = NSRect(x: c, y: b.height - t, width: b.width - 2 * c, height: t); mask = [.width, .minYMargin]
+        case .bottomLeft: frame = NSRect(x: 0, y: 0, width: c, height: c); mask = [.maxXMargin, .maxYMargin]
+        case .bottomRight: frame = NSRect(x: b.width - c, y: 0, width: c, height: c); mask = [.minXMargin, .maxYMargin]
+        case .topLeft: frame = NSRect(x: 0, y: b.height - c, width: c, height: c); mask = [.maxXMargin, .minYMargin]
+        case .topRight: frame = NSRect(x: b.width - c, y: b.height - c, width: c, height: c); mask = [.minXMargin, .minYMargin]
         }
-
-        override func draw(_ dirtyRect: NSRect) {
-            NSColor.secondaryLabelColor.setStroke()
-            let path = NSBezierPath()
-            for i in 1...3 {
-                let o = CGFloat(i) * 4
-                path.move(to: NSPoint(x: bounds.maxX - o, y: bounds.minY + 2))
-                path.line(to: NSPoint(x: bounds.maxX - 2, y: bounds.minY + o))
-            }
-            path.lineWidth = 1
-            path.stroke()
-        }
+        super.init(frame: frame)
+        autoresizingMask = mask
     }
-    func makeNSView(context: Context) -> NSView { GripView() }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func resetCursorRects() {
+        let cursor: NSCursor
+        switch edge {
+        case .left, .right: cursor = .resizeLeftRight
+        case .top, .bottom: cursor = .resizeUpDown
+        default: cursor = .crosshair
+        }
+        addCursorRect(bounds, cursor: cursor)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        startMouse = NSEvent.mouseLocation
+        startFrame = window?.frame ?? .zero
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let w = window else { return }
+        let p = NSEvent.mouseLocation
+        let dx = p.x - startMouse.x, dy = p.y - startMouse.y
+        let minW = w.minSize.width, minH = w.minSize.height
+        let maxW = w.maxSize.width, maxH = w.maxSize.height
+        var f = startFrame
+        if [.right, .topRight, .bottomRight].contains(edge) {
+            f.size.width = min(maxW, max(minW, startFrame.width + dx))
+        }
+        if [.left, .topLeft, .bottomLeft].contains(edge) {
+            let width = min(maxW, max(minW, startFrame.width - dx))
+            f.origin.x = startFrame.maxX - width
+            f.size.width = width
+        }
+        if [.top, .topLeft, .topRight].contains(edge) {
+            f.size.height = min(maxH, max(minH, startFrame.height + dy))   // bottom edge stays
+        }
+        if [.bottom, .bottomLeft, .bottomRight].contains(edge) {
+            let height = min(maxH, max(minH, startFrame.height - dy))      // top edge stays
+            f.origin.y = startFrame.maxY - height
+            f.size.height = height
+        }
+        w.setFrame(f, display: true)
+    }
 }
 
 // MARK: - Main view
@@ -269,9 +355,6 @@ struct MainView: View {
                     } else {
                         SettingsPane()
                     }
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    ResizeGrip().frame(width: 16, height: 16).padding(3)
                 }
             }
         }
@@ -540,7 +623,7 @@ struct HintsPane: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var hotkeys: HotKeyStore
     @State private var manualQuestion = ""
-    @State private var showTranscript = true
+    @AppStorage("showTranscript") private var showTranscript = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -591,11 +674,15 @@ struct HintsPane: View {
     private var answersList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 12) {
                     if state.answers.isEmpty { emptyHint }
                     ForEach(state.answers) { item in
-                        AnswerCard(item: item, fontSize: settings.fontSize).id(item.id)
+                        AnswerCard(item: item, fontSize: settings.fontSize) {
+                            state.toggleExpanded(item.id)
+                        }
+                        .id(item.id)
                     }
+                    Color.clear.frame(height: 24)
                 }
                 .padding(14)
             }
@@ -680,7 +767,6 @@ struct HintsPane: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .padding(.trailing, 16)
         .background(Color.black.opacity(0.15))
     }
 }
@@ -688,29 +774,53 @@ struct HintsPane: View {
 struct AnswerCard: View {
     let item: AnswerItem
     let fontSize: Double
+    var onToggle: () -> Void = {}
+
+    private var preview: String {
+        let line = item.text.split(separator: "\n").first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
+        return line.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "#", with: "")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(item.question)
-                    .font(.system(size: fontSize - 3))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                Spacer()
-                if item.isStreaming && item.text.isEmpty {
-                    ProgressView().controlSize(.small)
-                } else if let t = item.firstTokenSeconds {
-                    Text(String(format: "%.1f с", t)).font(.system(size: 10)).foregroundStyle(.tertiary)
+            Button(action: onToggle) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: item.expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                    Text(item.question)
+                        .font(.system(size: fontSize - 3))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(item.expanded ? 4 : 1)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 6)
+                    if item.isStreaming && item.text.isEmpty {
+                        ProgressView().controlSize(.small)
+                    } else if let t = item.firstTokenSeconds {
+                        Text(String(format: "%.1f с", t)).font(.system(size: 10)).foregroundStyle(.tertiary)
+                    }
                 }
+                .contentShape(Rectangle())
             }
-            MarkdownText(text: item.text, fontSize: fontSize)
+            .buttonStyle(.plain)
+            .help(item.expanded ? "Свернуть ответ" : "Развернуть ответ")
+
+            if item.expanded {
+                MarkdownText(text: item.text, fontSize: fontSize)
+            } else if !preview.isEmpty {
+                Text(preview)
+                    .font(.system(size: fontSize - 1, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
             if let err = item.error {
                 Text(err).font(.system(size: 12)).foregroundColor(.red).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.06)))
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(item.expanded ? 0.07 : 0.04)))
     }
 }
 

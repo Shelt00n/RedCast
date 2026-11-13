@@ -21,6 +21,11 @@ struct RedCastApp: App {
             Button("Записать интервьюера → ответ" + key(.recordInterviewer)) { state.toggleRecord(.interviewer) }
             Button("Записать меня → ответ" + key(.recordMe)) { state.toggleRecord(.me) }
             Button("Решить задачу с экрана" + key(.screenshot)) { state.solveScreenshot() }
+            Menu("Размер окна") {
+                ForEach(OverlayController.SizePreset.allCases) { preset in
+                    Button(preset.title) { OverlayController.shared.setSize(preset) }
+                }
+            }
             Divider()
             if let u = state.updateAvailable {
                 Button("Обновить до \(u.version)") { Task { await state.installUpdate() } }

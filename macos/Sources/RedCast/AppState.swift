@@ -22,6 +22,7 @@ struct AnswerItem: Identifiable {
     var error: String?
     let startedAt = Date()
     var firstTokenSeconds: Double?
+    var expanded = true
 }
 
 @MainActor
@@ -530,6 +531,11 @@ final class AppState: ObservableObject {
         }
     }
 
+    func toggleExpanded(_ id: UUID) {
+        guard let i = answers.firstIndex(where: { $0.id == id }) else { return }
+        answers[i].expanded.toggle()
+    }
+
     private func markStopped() {
         for i in answers.indices where answers[i].isStreaming {
             answers[i].isStreaming = false
@@ -541,6 +547,8 @@ final class AppState: ObservableObject {
         markStopped()
 
         let item = AnswerItem(question: question)
+        // Older answers fold into one line so the new one gets the whole window.
+        for i in answers.indices { answers[i].expanded = false }
         if replaceCurrent, let id = currentAnswerID, let idx = answers.firstIndex(where: { $0.id == id }) {
             answers[idx] = item
         } else {

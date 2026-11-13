@@ -78,6 +78,12 @@ public partial class App : Application
         menu.Items.Add("Записать интервьюера → ответ", null, (_, _) => AppState.Shared.ToggleRecord(Speaker.Interviewer));
         menu.Items.Add("Записать меня → ответ", null, (_, _) => AppState.Shared.ToggleRecord(Speaker.Me));
         menu.Items.Add("Решить задачу с экрана", null, (_, _) => AppState.Shared.SolveScreenshot());
+        var size = new ToolStripMenuItem("Размер окна");
+        size.DropDownItems.Add("Маленькое", null, (_, _) => _window?.SetSize("small"));
+        size.DropDownItems.Add("Среднее", null, (_, _) => _window?.SetSize("medium"));
+        size.DropDownItems.Add("Большое", null, (_, _) => _window?.SetSize("large"));
+        size.DropDownItems.Add("На всю высоту экрана", null, (_, _) => _window?.SetSize("tall"));
+        menu.Items.Add(size);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Проверить обновления", null, async (_, _) =>
         {
