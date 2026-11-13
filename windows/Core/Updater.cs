@@ -163,35 +163,43 @@ public static class Updater
     {
         var log = new StringBuilder();
         void Log(string s) { log.AppendLine("[self-test] " + s); File.WriteAllText(logPath, log.ToString()); }
+        string Ver(string dir) => FileVersionInfo.GetVersionInfo(Path.Combine(dir, "RedCast.exe")).FileVersion ?? "?";
+        bool failed = false;
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+        Log($"current version {CurrentVersion}");
+
+        // A. Offline: install a copy of this build over another copy with the real install script.
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
-            Log($"current version {CurrentVersion}");
-            var r = await LatestAsync();
-            Log($"latest release {r.Tag} → {r.AssetUrl}");
-            Log($"newer than current? {IsNewer(r.Version, CurrentVersion)}");
-
-            var newDir = await DownloadAsync(r);
-            var newVer = FileVersionInfo.GetVersionInfo(Path.Combine(newDir, "RedCast.exe")).FileVersion ?? "?";
-            Log($"downloaded RedCast.exe file version {newVer}");
-            if (!newVer.StartsWith(r.Version)) throw new Exception($"version mismatch {newVer} vs {r.Version}");
-
-            // Install over a temporary copy of the current app (never touches the real one).
             var sandbox = Path.Combine(Path.GetTempPath(), "redcast-selftest-" + Guid.NewGuid().ToString("N"));
-            CopyDir(AppDir, sandbox);
-            int code = Install(newDir, sandbox, waitPid: 0, relaunch: false, wait: true);
+            var newDir = Path.Combine(sandbox, "new");
+            var target = Path.Combine(sandbox, "app");
+            CopyDir(AppDir, newDir);
+            Directory.CreateDirectory(target);
+            File.WriteAllText(Path.Combine(target, "settings-like-user-file.txt"), "keep me");
+            int code = Install(newDir, target, waitPid: 0, relaunch: false, wait: true);
             if (code != 0) throw new Exception($"install script exit {code}");
-            var installed = FileVersionInfo.GetVersionInfo(Path.Combine(sandbox, "RedCast.exe")).FileVersion ?? "?";
-            if (!installed.StartsWith(r.Version)) throw new Exception($"installed version {installed}");
-            Log($"installed into sandbox: version {installed} ✓");
-            Log("OK");
-            return 0;
+            if (!File.Exists(Path.Combine(target, "RedCast.exe")) || !Ver(target).StartsWith(CurrentVersion))
+                throw new Exception("RedCast.exe was not installed");
+            if (!File.Exists(Path.Combine(target, "settings-like-user-file.txt")))
+                throw new Exception("installer deleted a user file");
+            Log($"A install script copied the app ({Ver(target)}), user files kept ✓");
         }
-        catch (Exception ex)
+        catch (Exception ex) { failed = true; Log("A FAILED: " + ex); }
+
+        // B. Online: latest release from GitHub → download → unpack → version check.
+        try
         {
-            Log("FAILED: " + ex);
-            return 1;
+            var r = await LatestAsync();
+            Log($"B1 latest release {r.Tag}, newer than current: {IsNewer(r.Version, CurrentVersion)}");
+            var dir = await DownloadAsync(r);
+            if (!Ver(dir).StartsWith(r.Version)) throw new Exception($"downloaded version {Ver(dir)}");
+            Log($"B2 downloaded and unpacked {r.Tag} ✓");
         }
+        catch (Exception ex) { failed = true; Log("B FAILED: " + ex.Message); }
+
+        Log(failed ? "FAILED" : "OK");
+        return failed ? 1 : 0;
     }
 
     static void CopyDir(string src, string dst)

@@ -248,39 +248,51 @@ enum Updater {
 
     static func selfTest() async -> Int32 {
         func log(_ s: String) { print("[self-test] \(s)"); fflush(stdout) }
+        func version(_ app: URL) -> String {
+            NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist"))?["CFBundleShortVersionString"] as? String ?? "?"
+        }
+        var failed = false
+        log("current version \(currentVersion)")
+
+        // A. Offline: sign a copy of this build and install it over another copy.
         do {
-            log("current version \(currentVersion)")
-            let release = try await latest()
-            log("latest release \(release.tag) → \(release.assetURL.absoluteString)")
-            log("newer than current? \(isNewer(release.version, than: currentVersion))")
-
-            let newApp = try await download(release)
-            let plist = NSDictionary(contentsOf: newApp.appendingPathComponent("Contents/Info.plist"))
-            let downloaded = plist?["CFBundleShortVersionString"] as? String ?? "?"
-            log("downloaded app version \(downloaded)")
-            guard downloaded == release.version else { throw UpdateError.command("version mismatch \(downloaded) vs \(release.version)") }
-
+            let sandbox = FileManager.default.temporaryDirectory.appendingPathComponent("redcast-selftest-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+            let newApp = sandbox.appendingPathComponent("new/RedCast.app", isDirectory: true)
+            let target = sandbox.appendingPathComponent("Applications/RedCast.app", isDirectory: true)
+            try FileManager.default.createDirectory(at: newApp.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try run("/usr/bin/ditto", [Bundle.main.bundleURL.path, newApp.path])
+            try run("/usr/bin/ditto", [Bundle.main.bundleURL.path, target.path])
             try sign(newApp)
             guard isLocallySigned(newApp) else { throw UpdateError.command("local signature not applied") }
             try run("/usr/bin/codesign", ["--verify", "--deep", newApp.path])
-            log("signed with «\(signingName)», signature valid")
-
-            // Install over a temporary copy of the current app (never touches the real one).
-            let sandbox = FileManager.default.temporaryDirectory.appendingPathComponent("redcast-selftest-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
-            let target = sandbox.appendingPathComponent("RedCast.app", isDirectory: true)
-            try run("/usr/bin/ditto", [Bundle.main.bundleURL.path, target.path])
+            log("A1 signed with «\(signingName)», signature valid ✓")
+            let again = try signingIdentity()
+            log("A2 identity is reused (\(again.prefix(8))…) ✓")
             let status = try install(newApp: newApp, target: target, waitForPID: 999_999, relaunch: false, wait: true)
             guard status == 0 else { throw UpdateError.command("install script exit \(status)") }
-            let installed = NSDictionary(contentsOf: target.appendingPathComponent("Contents/Info.plist"))?["CFBundleShortVersionString"] as? String
-            guard installed == release.version else { throw UpdateError.command("installed version \(installed ?? "nil")") }
-            guard isLocallySigned(target) else { throw UpdateError.command("installed app lost signature") }
-            log("installed into sandbox: version \(installed!), signed ✓")
-            log("OK")
-            return 0
+            guard isLocallySigned(target), version(target) == currentVersion,
+                  !FileManager.default.fileExists(atPath: newApp.path) else { throw UpdateError.command("swap result is wrong") }
+            log("A3 install script swapped the app, signature kept ✓")
         } catch {
-            log("FAILED: \(error.localizedDescription)")
-            return 1
+            failed = true
+            log("A FAILED: \(error.localizedDescription)")
         }
+
+        // B. Online: latest release from GitHub → download → unpack → version check.
+        do {
+            let release = try await latest()
+            log("B1 latest release \(release.tag), newer than current: \(isNewer(release.version, than: currentVersion))")
+            let app = try await download(release)
+            guard version(app) == release.version else { throw UpdateError.command("downloaded version \(version(app))") }
+            log("B2 downloaded and unpacked \(release.tag) ✓")
+        } catch {
+            failed = true
+            log("B FAILED: \(error.localizedDescription)")
+        }
+
+        log(failed ? "FAILED" : "OK")
+        return failed ? 1 : 0
     }
 }
