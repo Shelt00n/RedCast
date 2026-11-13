@@ -53,24 +53,25 @@ public static class Updater
         return false;
     }
 
+    /// <summary>
+    /// Latest release via the public redirect github.com/…/releases/latest → …/releases/tag/vX.Y.Z
+    /// (no API call: the GitHub API limits anonymous clients to 60 requests per hour per IP).
+    /// </summary>
     public static async Task<ReleaseInfo> LatestAsync()
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Repo}/releases/latest");
-        req.Headers.Accept.ParseAdd("application/vnd.github+json");
+        using var req = new HttpRequestMessage(HttpMethod.Head, $"https://github.com/{Repo}/releases/latest");
         using var resp = await Http.SendAsync(req);
         if ((int)resp.StatusCode == 404)
             throw new InvalidOperationException("Релизы не найдены (репозиторий приватный или ещё нет релизов).");
+        if ((int)resp.StatusCode is 403 or 429)
+            throw new InvalidOperationException("GitHub временно ограничил запросы — попробуйте через несколько минут.");
         resp.EnsureSuccessStatusCode();
-        var obj = JsonNode.Parse(await resp.Content.ReadAsStringAsync())!;
-        var tag = obj["tag_name"]!.GetValue<string>();
-        var asset = (obj["assets"] as JsonArray)?.FirstOrDefault(a => a?["name"]?.GetValue<string>() == AssetName)
-                    ?? throw new InvalidOperationException("В релизе нет файла для Windows.");
-        return new ReleaseInfo(
-            tag.TrimStart('v'),
-            tag,
-            asset["browser_download_url"]!.GetValue<string>(),
-            asset["size"]?.GetValue<long>() ?? 0,
-            obj["body"]?.GetValue<string>() ?? "");
+        var segments = resp.RequestMessage?.RequestUri?.Segments.Select(x => x.Trim('/')).ToList() ?? new();
+        int i = segments.IndexOf("tag");
+        if (i < 0 || i + 1 >= segments.Count) throw new InvalidOperationException("Релизы не найдены.");
+        var tag = Uri.UnescapeDataString(segments[i + 1]);
+        return new ReleaseInfo(tag.TrimStart('v'), tag,
+            $"https://github.com/{Repo}/releases/download/{tag}/{AssetName}", 0, "");
     }
 
     /// <summary>Downloads and unpacks the release; returns the folder that contains the new RedCast.exe.</summary>

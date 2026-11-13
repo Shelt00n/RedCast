@@ -18,6 +18,7 @@ enum UpdateError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .http(404): return "Релизы не найдены (репозиторий приватный или ещё нет релизов)."
+        case .http(403), .http(429): return "GitHub временно ограничил запросы — попробуйте через несколько минут."
         case .http(let c): return "GitHub ответил ошибкой \(c)."
         case .noAsset: return "В релизе нет файла для macOS."
         case .badArchive: return "Скачанный архив повреждён."
@@ -60,20 +61,21 @@ enum Updater {
         return r
     }
 
+    /// Latest release via the public redirect github.com/…/releases/latest → …/releases/tag/vX.Y.Z.
+    /// (No API call: the GitHub API limits anonymous clients to 60 requests per hour per IP.)
     static func latest() async throws -> ReleaseInfo {
-        let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
-        let (data, resp) = try await URLSession.shared.data(for: request(url, accept: "application/vnd.github+json"))
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        guard code == 200 else { throw UpdateError.http(code) }
-        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tag = obj["tag_name"] as? String,
-              let assets = obj["assets"] as? [[String: Any]],
-              let asset = assets.first(where: { $0["name"] as? String == assetName }),
-              let link = asset["browser_download_url"] as? String,
-              let assetURL = URL(string: link)
-        else { throw UpdateError.noAsset }
+        var req = request(URL(string: "https://github.com/\(repo)/releases/latest")!, accept: "text/html")
+        req.httpMethod = "HEAD"
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse, http.statusCode == 200, let final = http.url else {
+            throw UpdateError.http((resp as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        let parts = final.pathComponents
+        guard let i = parts.firstIndex(of: "tag"), i + 1 < parts.count else { throw UpdateError.http(404) }
+        let tag = parts[i + 1]
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        return ReleaseInfo(version: version, tag: tag, assetURL: assetURL, notes: obj["body"] as? String ?? "")
+        let asset = URL(string: "https://github.com/\(repo)/releases/download/\(tag)/\(assetName)")!
+        return ReleaseInfo(version: version, tag: tag, assetURL: asset, notes: "")
     }
 
     /// Downloads and unpacks the release. Returns the new RedCast.app in a temp folder.
