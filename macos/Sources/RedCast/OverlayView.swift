@@ -544,6 +544,26 @@ struct HintsPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let u = state.updateAvailable {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.down.circle.fill").foregroundColor(.green)
+                    Text(state.isUpdating ? state.updateStatus : "Доступна новая версия \(u.version)")
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                    Spacer()
+                    if state.isUpdating {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button("Обновить") { Task { await state.installUpdate() } }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.green)
+                            .controlSize(.small)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(Color.green.opacity(0.14))
+            }
             answersList
             Divider().opacity(0.35)
             HStack {

@@ -20,9 +20,16 @@ public partial class App : Application
     static string LogPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RedCast", "error.log");
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (Array.IndexOf(e.Args, "--self-test") >= 0)
+        {
+            var log = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RedCast", "selftest.log");
+            int code = await Updater.SelfTestAsync(log);
+            Shutdown(code);
+            return;
+        }
         _single = new Mutex(true, "RedCast.SingleInstance", out bool first);
         if (!first)
         {
@@ -46,6 +53,10 @@ public partial class App : Application
         CreateTray();
         _ = AppState.Shared.LoadSpeechModel();
         AppState.Shared.PrewarmLLM();
+        _ = AppState.Shared.CheckForUpdates(silent: true);
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromHours(6) };
+        timer.Tick += (_, _) => _ = AppState.Shared.CheckForUpdates(silent: true);
+        timer.Start();
     }
 
     static void Log(Exception? ex)
@@ -68,6 +79,11 @@ public partial class App : Application
         menu.Items.Add("Записать меня → ответ", null, (_, _) => AppState.Shared.ToggleRecord(Speaker.Me));
         menu.Items.Add("Решить задачу с экрана", null, (_, _) => AppState.Shared.SolveScreenshot());
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Проверить обновления", null, async (_, _) =>
+        {
+            await AppState.Shared.CheckForUpdates(silent: false);
+            if (AppState.Shared.HasUpdate) _window?.ShowWindow();
+        });
         menu.Items.Add("Настройки", null, (_, _) => _window?.ShowSettings());
         menu.Items.Add("Выйти", null, (_, _) => Quit());
 

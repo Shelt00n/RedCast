@@ -25,9 +25,21 @@ jobs:
       - name: Toolchain
         run: swift --version
 
+      - name: Check version matches release
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          V="${VERSION#v}"
+          grep -q "<string>$V</string>" macos/Resources/Info.plist || { echo "Info.plist version != $V"; exit 1; }
+          grep -q "<Version>$V</Version>" windows/RedCast.csproj || { echo "RedCast.csproj version != $V"; exit 1; }
+
       - name: Build RedCast.app
         working-directory: macos
         run: bash build_app.sh
+
+      - name: Self-test (download → sign → install → verify)
+        run: macos/build/RedCast.app/Contents/MacOS/RedCast --self-test
 
       - name: Package
         run: |
@@ -51,6 +63,13 @@ jobs:
 
       - name: Publish RedCast.exe
         run: dotnet publish windows/RedCast.csproj -c Release -o out/RedCast
+
+      - name: Self-test (download → install → verify)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath out/RedCast/RedCast.exe -ArgumentList '--self-test' -Wait -PassThru
+          Get-Content "$env:APPDATA/RedCast/selftest.log"
+          if ($p.ExitCode -ne 0) { throw "self-test failed ($($p.ExitCode))" }
 
       - name: Package
         shell: pwsh

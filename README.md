@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.1-e3141f" alt="2.0.1">
+  <img src="https://img.shields.io/badge/version-2.1.0-e3141f" alt="2.1.0">
   <img src="https://img.shields.io/badge/macOS-14%2B-black?logo=apple" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows" alt="Windows 10/11">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="MIT"></a>
@@ -56,6 +56,10 @@
 3. Запустите RedCast и разрешите «Запись экрана и системного звука» и микрофон.
 
 📖 Подробно: **[macos/README.md](macos/README.md)**
+
+## Обновление
+
+RedCast обновляется сам. Когда выходит новая версия, в окне появляется зелёная плашка **«Доступна новая версия → Обновить»**. Нажмите, и приложение скачает обновление с GitHub, заменит себя и перезапустится. Настройки, резюме и модель речи сохраняются. Проверить вручную можно в «Настройки → 6. Обновления».
 
 ## Как это работает
 

@@ -17,6 +17,7 @@ struct SettingsPane: View {
             profileSection
             windowSection
             hotkeySection
+            updateSection
             Section {
                 HStack {
                     Button("Открыть папку с записями собеседований") {
@@ -172,6 +173,35 @@ struct SettingsPane: View {
             }
         } header: {
             Text("5. Горячие клавиши (работают в любом приложении)")
+        }
+    }
+
+    // MARK: Updates
+
+    private var updateSection: some View {
+        Section("6. Обновления") {
+            HStack {
+                Text("Установлена версия \(Updater.currentVersion)")
+                Spacer()
+                Button("Проверить обновления") { Task { await state.checkForUpdates(silent: false) } }
+                    .disabled(state.isUpdating)
+            }
+            if !state.updateStatus.isEmpty {
+                hint(state.updateStatus)
+            }
+            if let u = state.updateAvailable {
+                HStack {
+                    Button {
+                        Task { await state.installUpdate() }
+                    } label: {
+                        Label(state.isUpdating ? "Обновляю…" : "Обновить до \(u.version)", systemImage: "arrow.down.circle.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(state.isUpdating)
+                    if state.isUpdating { ProgressView().controlSize(.small) }
+                }
+                hint("RedCast скачает новую версию с GitHub, заменит себя и перезапустится. Настройки, резюме и модель речи сохранятся.")
+            }
         }
     }
 

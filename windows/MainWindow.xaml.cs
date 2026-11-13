@@ -398,6 +398,9 @@ public partial class MainWindow : Window
     void Backend_Changed(object s, SelectionChangedEventArgs e) => UpdateBackendPanels();
     void ApiKey_Changed(object s, RoutedEventArgs e) => _s.ApiKey = ApiKeyBox.Password;
 
+    void CheckUpdates_Click(object s, RoutedEventArgs e) => _ = _state.CheckForUpdates(silent: false);
+    void InstallUpdate_Click(object s, RoutedEventArgs e) => _ = _state.InstallUpdate();
+
     void TestConnection_Click(object s, RoutedEventArgs e)
     {
         SelectTab(settings: false);

@@ -88,6 +88,17 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <StackPanel Margin="14,0,14,8" Background="Transparent" MouseLeftButtonDown="Drag">
+                        <Border Background="#2622A55B" CornerRadius="8" Padding="10,6" Margin="0,0,0,8"
+                                Visibility="{Binding HasUpdate, Converter={StaticResource BoolToVis}}">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Background="{StaticResource Green}"
+                                        Padding="12,4" Content="Обновить" Click="InstallUpdate_Click"
+                                        IsEnabled="{Binding NotUpdating}"/>
+                                <TextBlock VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
+                                    <Run Text="⬇ "/><Run Text="{Binding UpdateStatus, Mode=OneWay}"/>
+                                </TextBlock>
+                            </DockPanel>
+                        </Border>
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                                 <Button Style="{StaticResource Btn}" Content="📷 Скриншот" Click="Screenshot_Click" ToolTip="Решить задачу с экрана" Margin="0,0,4,0"/>
@@ -250,6 +261,25 @@
                             <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Сбросить" Click="ResetHotKeys_Click"/>
                             <TextBlock Style="{StaticResource Hint}" Text="Нажмите на сочетание и введите новое. Esc — отмена. Нужен Ctrl, Alt, Shift или Win (кроме F1–F12)."/>
                         </DockPanel>
+
+                        <TextBlock Style="{StaticResource H}" Text="6. Обновления"/>
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Проверить обновления" Click="CheckUpdates_Click"
+                                    IsEnabled="{Binding NotUpdating}"/>
+                            <TextBlock VerticalAlignment="Center" FontSize="13">
+                                <Run Text="Установлена версия "/><Run Text="{Binding CurrentVersion, Mode=OneWay}"/>
+                            </TextBlock>
+                        </DockPanel>
+                        <TextBlock Style="{StaticResource Hint}" Text="{Binding UpdateStatus}"
+                                   Visibility="{Binding UpdateStatus, Converter={StaticResource TextToVis}}"/>
+                        <StackPanel Visibility="{Binding HasUpdate, Converter={StaticResource BoolToVis}}">
+                            <Button Style="{StaticResource Btn}" Background="{StaticResource Green}" HorizontalAlignment="Left"
+                                    Padding="16,7" FontWeight="SemiBold" Content="{Binding UpdateButtonText}"
+                                    Click="InstallUpdate_Click" IsEnabled="{Binding NotUpdating}"/>
+                            <ProgressBar Height="4" Margin="0,8,0,0" Minimum="0" Maximum="100" Value="{Binding UpdateProgress}"
+                                         Visibility="{Binding IsUpdating, Converter={StaticResource BoolToVis}}"/>
+                            <TextBlock Style="{StaticResource Hint}" Text="RedCast скачает новую версию с GitHub, заменит свои файлы и перезапустится. Настройки, резюме и модель речи сохранятся."/>
+                        </StackPanel>
 
                         <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
                             <Button Style="{StaticResource Btn}" Content="Папка с записями собеседований" Click="OpenSessions_Click"/>

@@ -140,6 +140,80 @@ public sealed class AppState : Observable
 
     public void ShowError(string text) => ErrorMessage = text;
 
+    // MARK: - Updates
+
+    public string CurrentVersion => Updater.CurrentVersion;
+
+    ReleaseInfo? _update;
+    public ReleaseInfo? UpdateAvailable
+    {
+        get => _update;
+        set { if (Set(ref _update, value)) { OnChanged(nameof(HasUpdate)); OnChanged(nameof(UpdateButtonText)); } }
+    }
+    public bool HasUpdate => UpdateAvailable != null;
+    public string UpdateButtonText => UpdateAvailable == null ? "" : $"⬇  Обновить до {UpdateAvailable.Version}";
+
+    string _updateStatus = "";
+    public string UpdateStatus { get => _updateStatus; set => Set(ref _updateStatus, value); }
+
+    bool _isUpdating;
+    public bool IsUpdating { get => _isUpdating; set { if (Set(ref _isUpdating, value)) OnChanged(nameof(NotUpdating)); } }
+    public bool NotUpdating => !IsUpdating;
+
+    double _updateProgress;
+    public double UpdateProgress { get => _updateProgress; set => Set(ref _updateProgress, value); }
+
+    public async Task CheckForUpdates(bool silent)
+    {
+        if (!silent) UpdateStatus = "Проверяю…";
+        try
+        {
+            var r = await Task.Run(Updater.LatestAsync);
+            if (Updater.IsNewer(r.Version, Updater.CurrentVersion))
+            {
+                UpdateAvailable = r;
+                UpdateStatus = $"Доступна версия {r.Version}";
+            }
+            else
+            {
+                UpdateAvailable = null;
+                UpdateStatus = $"У вас последняя версия ({Updater.CurrentVersion})";
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!silent) UpdateStatus = "Не удалось проверить: " + ex.Message;
+        }
+    }
+
+    public async Task InstallUpdate()
+    {
+        var r = UpdateAvailable;
+        if (r == null || IsUpdating) return;
+        if (!Updater.CanWriteAppDir())
+        {
+            ShowError($"Нет прав на запись в папку {Updater.AppDir}. Переместите папку RedCast, например, в C:\\RedCast или в «Документы» и запустите оттуда.");
+            return;
+        }
+        IsUpdating = true;
+        try
+        {
+            if (IsListening) Stop();
+            UpdateStatus = $"Скачиваю версию {r.Version}…";
+            var progress = new Progress<double>(f => { UpdateProgress = f * 100; UpdateStatus = $"Скачиваю версию {r.Version}: {(int)(f * 100)}%"; });
+            var dir = await Task.Run(() => Updater.DownloadAsync(r, progress));
+            UpdateStatus = "Устанавливаю… RedCast перезапустится";
+            Updater.Install(dir, Updater.AppDir, Environment.ProcessId, relaunch: true, wait: false);
+            ((App)Application.Current).Quit();
+        }
+        catch (Exception ex)
+        {
+            UpdateStatus = "Ошибка обновления: " + ex.Message;
+            ShowError("Не удалось обновиться: " + ex.Message);
+        }
+        finally { IsUpdating = false; }
+    }
+
     // MARK: - Speech model
 
     public async Task LoadSpeechModel()

@@ -22,6 +22,11 @@ struct RedCastApp: App {
             Button("Записать меня → ответ" + key(.recordMe)) { state.toggleRecord(.me) }
             Button("Решить задачу с экрана" + key(.screenshot)) { state.solveScreenshot() }
             Divider()
+            if let u = state.updateAvailable {
+                Button("Обновить до \(u.version)") { Task { await state.installUpdate() } }
+            } else {
+                Button("Проверить обновления") { Task { await state.checkForUpdates(silent: false) } }
+            }
             Button("Настройки…") { OverlayController.shared.showSettings() }
             Button("Выйти") { NSApp.terminate(nil) }
                 .keyboardShortcut("q")
@@ -33,11 +38,23 @@ struct RedCastApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if CommandLine.arguments.contains("--self-test") {
+            Task {
+                let code = await Updater.selfTest()
+                exit(code)
+            }
+            return
+        }
         MainActor.assumeIsolated {
+            Updater.adoptStableSignatureIfNeeded()
             OverlayController.shared.show()
             HotKeyStore.shared.registerAll()
             Task { await AppState.shared.loadSpeechModel() }
             AppState.shared.prewarmLLM()
+            Task { await AppState.shared.checkForUpdates(silent: true) }
+            Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { _ in
+                Task { @MainActor in await AppState.shared.checkForUpdates(silent: true) }
+            }
         }
     }
 

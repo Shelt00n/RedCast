@@ -44,6 +44,11 @@ final class AppState: ObservableObject {
     @Published var errorMessage: String?
     @Published var errorIsPermission = false
 
+    // Updates
+    @Published var updateAvailable: ReleaseInfo?
+    @Published var updateStatus = ""
+    @Published var isUpdating = false
+
     private let transcriber = Transcriber()
     private let systemCapture = SystemAudioCapture()
     private let micCapture = MicCapture()
@@ -187,6 +192,40 @@ final class AppState: ObservableObject {
         Transcriber.deleteModel(settings.whisperModel)
         errorMessage = nil
         await loadSpeechModel()
+    }
+
+    // MARK: - Updates
+
+    func checkForUpdates(silent: Bool) async {
+        if !silent { updateStatus = "Проверяю…" }
+        do {
+            let r = try await Updater.latest()
+            if Updater.isNewer(r.version, than: Updater.currentVersion) {
+                updateAvailable = r
+                updateStatus = "Доступна версия \(r.version)"
+            } else {
+                updateAvailable = nil
+                updateStatus = "У вас последняя версия (\(Updater.currentVersion))"
+            }
+        } catch {
+            if !silent { updateStatus = "Не удалось проверить: \(error.localizedDescription)" }
+        }
+    }
+
+    func installUpdate() async {
+        guard let r = updateAvailable, !isUpdating else { return }
+        isUpdating = true
+        defer { isUpdating = false }
+        if isListening { stop() }
+        updateStatus = "Скачиваю версию \(r.version)…"
+        do {
+            let app = try await Updater.download(r)
+            updateStatus = "Устанавливаю… RedCast перезапустится"
+            try Updater.installAndRelaunch(app)
+        } catch {
+            updateStatus = "Ошибка обновления: \(error.localizedDescription)"
+            showError("Не удалось обновиться: \(error.localizedDescription)")
+        }
     }
 
     func showError(_ text: String, permission: Bool = false) {
