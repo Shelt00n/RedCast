@@ -257,7 +257,15 @@
                         <CheckBox Content="Авто: распознавать мой микрофон (чтобы понимать, что я уже ответил)" IsChecked="{Binding Settings.CaptureMic}"/>
                         <TextBlock Style="{StaticResource Hint}" Text="Наденьте наушники — иначе микрофон слышит интервьюера из динамиков. Такие повторы RedCast отбрасывает, но с наушниками надёжнее всего."/>
 
-                        <TextBlock Style="{StaticResource H}" Text="3. Профиль кандидата"/>
+                        <TextBlock Style="{StaticResource H}" Text="3. Как отвечать и профиль"/>
+                        <DockPanel Margin="0,4,0,3">
+                            <Button x:Name="FormatPresetsButton" DockPanel.Dock="Right" Style="{StaticResource Btn}" Padding="8,2" FontSize="11.5"
+                                    Content="Шаблоны ▾" Click="FormatPresets_Click"/>
+                            <TextBlock Text="Формат ответа" FontSize="13.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <TextBox Text="{Binding Settings.AnswerFormat, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True"
+                                 TextWrapping="Wrap" Height="90" VerticalScrollBarVisibility="Auto"/>
+                        <TextBlock Style="{StaticResource Hint}" Text="Опишите своими словами, как Claude должен отвечать: длина, стиль, списки или сплошной текст, нужен ли код. Применяется ко ВСЕМ ответам, включая задачи и скриншоты. Пусто — стандартный формат (жирный тезис, пункты, код)."/>
                         <TextBlock Style="{StaticResource Label}" Text="Язык подсказок"/>
                         <ComboBox ItemsSource="{x:Static core:Catalog.AnswerLanguages}" SelectedValuePath="Id" DisplayMemberPath="Title" SelectedValue="{Binding Settings.AnswerLanguage}"/>
                         <DockPanel Margin="0,8,0,3">
@@ -270,7 +278,7 @@
                             <TextBlock Style="{StaticResource Label}" Margin="0" Text="Вакансия"/>
                         </DockPanel>
                         <TextBox Text="{Binding Settings.JobDescription, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" Height="90" VerticalScrollBarVisibility="Auto"/>
-                        <TextBlock Style="{StaticResource Label}" Text="Указания (грейд, стиль, что подчеркнуть)"/>
+                        <TextBlock Style="{StaticResource Label}" Text="Дополнительно о себе (грейд, что подчеркнуть)"/>
                         <TextBox Text="{Binding Settings.ExtraInstructions, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" Height="56"/>
 
                         <TextBlock Style="{StaticResource H}" Text="4. Окно"/>

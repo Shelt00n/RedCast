@@ -455,6 +455,18 @@ public partial class MainWindow : Window
         if (IsLoaded && e.AddedItems.Count > 0 && e.RemovedItems.Count > 0) _state.MicDeviceChanged();
     }
 
+    void FormatPresets_Click(object s, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = FormatPresetsButton };
+        foreach (var p in AnswerFormatPreset.All)
+        {
+            var item = new MenuItem { Header = p.Title };
+            item.Click += (_, _) => _s.AnswerFormat = p.Text;
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
+
     void CheckUpdates_Click(object s, RoutedEventArgs e) => _ = _state.CheckForUpdates(silent: false);
     void InstallUpdate_Click(object s, RoutedEventArgs e) => _ = _state.InstallUpdate();
 

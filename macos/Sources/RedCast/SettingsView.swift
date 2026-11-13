@@ -148,13 +148,31 @@ struct SettingsPane: View {
     // MARK: Profile
 
     private var profileSection: some View {
-        Section("3. Профиль кандидата") {
+        Section("3. Как отвечать и профиль") {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Формат ответа").font(.headline)
+                    Spacer()
+                    Menu("Шаблоны") {
+                        ForEach(AnswerFormatPreset.all) { p in
+                            Button(p.title) { settings.answerFormat = p.text }
+                        }
+                    }
+                    .fixedSize()
+                }
+                TextEditor(text: $settings.answerFormat)
+                    .font(.system(size: 12))
+                    .frame(height: 90)
+                hint(settings.answerFormat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                     ? "Пусто — стандартный формат: жирный тезис, пункты, код. Опишите своими словами, как Claude должен отвечать (длина, стиль, списки или сплошной текст, нужен ли код), — это применится ко ВСЕМ ответам, включая задачи и скриншоты."
+                     : "✓ Ваш формат применяется ко всем ответам, включая задачи и скриншоты. Очистите поле, чтобы вернуть стандартный.")
+            }
             Picker("Язык подсказок", selection: $settings.answerLanguage) {
                 ForEach(AnswerLanguage.allCases) { Text($0.title).tag($0) }
             }
             editor("Резюме", text: $settings.resume, height: 110, importable: true)
             editor("Вакансия", text: $settings.jobDescription, height: 80, importable: true)
-            editor("Указания (грейд, стиль, что подчеркнуть)", text: $settings.extraInstructions, height: 50, importable: false)
+            editor("Дополнительно о себе (грейд, что подчеркнуть)", text: $settings.extraInstructions, height: 50, importable: false)
         }
     }
 

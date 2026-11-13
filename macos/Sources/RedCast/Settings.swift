@@ -111,6 +111,8 @@ final class AppSettings: ObservableObject {
     @Published var resume: String { didSet { d.set(resume, forKey: "resume") } }
     @Published var jobDescription: String { didSet { d.set(jobDescription, forKey: "jobDescription") } }
     @Published var extraInstructions: String { didSet { d.set(extraInstructions, forKey: "extraInstructions") } }
+    /// How Claude must format every answer; "" = built-in format.
+    @Published var answerFormat: String { didSet { d.set(answerFormat, forKey: "answerFormat") } }
 
     // Overlay
     @Published var overlayOpacity: Double { didSet { d.set(overlayOpacity, forKey: "overlayOpacity") } }
@@ -140,6 +142,7 @@ final class AppSettings: ObservableObject {
         resume = d.string(forKey: "resume") ?? ""
         jobDescription = d.string(forKey: "jobDescription") ?? ""
         extraInstructions = d.string(forKey: "extraInstructions") ?? ""
+        answerFormat = d.string(forKey: "answerFormat") ?? ""
 
         overlayOpacity = d.object(forKey: "overlayOpacity") as? Double ?? 0.94
         fontSize = d.object(forKey: "fontSize") as? Double ?? 15

@@ -161,6 +161,10 @@ public sealed class AppSettings : Observable
     string _jobDescription = "";
     public string JobDescription { get => _jobDescription; set => Set(ref _jobDescription, value); }
 
+    string _answerFormat = "";
+    /// <summary>How Claude must format every answer; "" = built-in format.</summary>
+    public string AnswerFormat { get => _answerFormat; set => Set(ref _answerFormat, value); }
+
     string _extraInstructions = "";
     public string ExtraInstructions { get => _extraInstructions; set => Set(ref _extraInstructions, value); }
 

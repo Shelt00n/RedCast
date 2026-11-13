@@ -552,7 +552,7 @@ public sealed class AppState : Observable
         try
         {
             var jpeg = await Task.Run(ScreenGrabber.CaptureJpeg);
-            Ask("📷 Задача с экрана", Prompts.Screenshot(Context(DateTime.Now)), jpeg, false);
+            Ask("📷 Задача с экрана", Prompts.Screenshot(Context(DateTime.Now), !string.IsNullOrWhiteSpace(Settings.AnswerFormat)), jpeg, false);
         }
         catch (Exception ex) { ShowError("Скриншот не удался: " + ex.Message); }
     }

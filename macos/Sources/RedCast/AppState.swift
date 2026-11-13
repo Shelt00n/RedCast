@@ -515,7 +515,8 @@ final class AppState: ObservableObject {
                 status = "Скриншот…"
                 let jpeg = try await ScreenGrabber.captureJPEG()
                 status = isListening ? "Слушаю…" : "Готов"
-                ask(question: "📷 Задача с экрана", prompt: Prompts.screenshot(context: context(before: Date())),
+                ask(question: "📷 Задача с экрана", prompt: Prompts.screenshot(context: context(before: Date()),
+                                                     customFormat: !settings.answerFormat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
                     image: jpeg, replaceCurrent: false)
             } catch {
                 status = isListening ? "Слушаю…" : "Готов"
