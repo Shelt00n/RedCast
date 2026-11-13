@@ -176,8 +176,17 @@ final class AppState: ObservableObject {
         } catch {
             modelProgress = nil
             modelStatus = "Ошибка модели речи"
-            showError("Не удалось загрузить модель речи: \(error.localizedDescription). Проверьте интернет и нажмите «Перезагрузить модель» в настройках.")
+            showError("Не удалось загрузить модель речи: \(error.localizedDescription). Проверьте интернет и нажмите «Скачать модель заново» во вкладке «Настройки».")
         }
+    }
+
+    /// Deletes the speech model files and downloads a clean copy.
+    func redownloadSpeechModel() async {
+        if isListening { stop() }
+        await transcriber.reset()
+        Transcriber.deleteModel(settings.whisperModel)
+        errorMessage = nil
+        await loadSpeechModel()
     }
 
     func showError(_ text: String, permission: Bool = false) {

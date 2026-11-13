@@ -25,6 +25,13 @@ actor Transcriber {
 
     var isReady: Bool { state == .ready }
 
+    /// Forget the loaded model (before re-downloading it).
+    func reset() {
+        pipe = nil
+        loadedModel = ""
+        state = .notLoaded
+    }
+
     private var loadTask: Task<Void, Error>?
 
     /// Folder of an already downloaded model (so the app starts offline and instantly).
@@ -51,28 +58,27 @@ actor Transcriber {
     private func performLoad(model: String, progress: @escaping @Sendable (Double) -> Void) async throws {
         state = .loading
         do {
-            let folder: URL
-            if let local = Self.localFolder(for: model) {
+            // Always ask the downloader first: it skips complete files and finishes partial ones,
+            // so an interrupted download is repaired automatically. Offline → use what is on disk.
+            var folder: URL
+            do {
+                folder = try await Self.download(model, progress: progress)
+            } catch {
+                guard let local = Self.localFolder(for: model) else { throw error }
                 folder = local
-            } else {
-                folder = try await WhisperKit.download(
-                    variant: model,
-                    downloadBase: Transcriber.modelsDirectory,
-                    progressCallback: { p in progress(p.fractionCompleted) }
-                )
             }
             progress(1.0)
-            let config = WhisperKitConfig(
-                model: model,
-                downloadBase: Transcriber.modelsDirectory,
-                modelFolder: folder.path,
-                verbose: false,
-                logLevel: .error,
-                prewarm: true,
-                load: true,
-                download: false
-            )
-            let p = try await WhisperKit(config)
+            let p: WhisperKit
+            do {
+                p = try await Self.makePipe(model: model, folder: folder)
+            } catch {
+                // Damaged model files ("Unable to load model … Compile the model …"):
+                // delete them and download a clean copy once.
+                Self.deleteModel(model)
+                folder = try await Self.download(model, progress: progress)
+                progress(1.0)
+                p = try await Self.makePipe(model: model, folder: folder)
+            }
             pipe = p
             loadedModel = model
             promptTokens = nil
@@ -84,6 +90,36 @@ actor Transcriber {
             state = .failed(error.localizedDescription)
             throw error
         }
+    }
+
+    private static func download(_ model: String, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        try await WhisperKit.download(
+            variant: model,
+            downloadBase: modelsDirectory,
+            progressCallback: { p in progress(p.fractionCompleted) }
+        )
+    }
+
+    private static func makePipe(model: String, folder: URL) async throws -> WhisperKit {
+        let config = WhisperKitConfig(
+            model: model,
+            downloadBase: modelsDirectory,
+            modelFolder: folder.path,
+            verbose: false,
+            logLevel: .error,
+            prewarm: true,
+            load: true,
+            download: false
+        )
+        return try await WhisperKit(config)
+    }
+
+    /// Removes a model and its download bookkeeping so it is fetched again from scratch.
+    static func deleteModel(_ model: String) {
+        let repo = modelsDirectory.appendingPathComponent("models/argmaxinc/whisperkit-coreml", isDirectory: true)
+        let fm = FileManager.default
+        try? fm.removeItem(at: repo.appendingPathComponent("openai_whisper-\(model)", isDirectory: true))
+        try? fm.removeItem(at: repo.appendingPathComponent(".cache/huggingface/download/openai_whisper-\(model)", isDirectory: true))
     }
 
     /// Final (accurate) transcription. Waits for its turn.

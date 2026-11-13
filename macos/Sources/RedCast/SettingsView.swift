@@ -76,7 +76,9 @@ struct SettingsPane: View {
             HStack {
                 Text(state.modelStatus).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Перезагрузить модель") { Task { await state.loadSpeechModel() } }
+                Button("Перезагрузить") { Task { await state.loadSpeechModel() } }
+                Button("Скачать модель заново") { Task { await state.redownloadSpeechModel() } }
+                    .help("Если модель повреждена: удалить её и скачать чистую копию (~1,6 ГБ)")
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Словарь терминов (технологии, компании, имена)")
