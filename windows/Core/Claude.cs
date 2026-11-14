@@ -190,6 +190,15 @@ public sealed class ClaudeCodeClient : ILLMClient
         _customPath = customPath;
         _workDir = Path.Combine(Path.GetTempPath(), "redcast-claude");
         Directory.CreateDirectory(_workDir);
+        // The prompt files hold the resume: remove the ones left by earlier runs (killed processes, crashes).
+        // RedCast is single-instance, so at this point none of them is in use.
+        foreach (var f in Directory.GetFiles(_workDir, "system-*.txt"))
+            TryDelete(f);
+    }
+
+    static void TryDelete(string path)
+    {
+        try { File.Delete(path); } catch { }
     }
 
     public string Executable()
@@ -259,7 +268,19 @@ public sealed class ClaudeCodeClient : ILLMClient
         psi.Environment.Remove("ANTHROPIC_API_KEY");
         psi.Environment.Remove("ANTHROPIC_AUTH_TOKEN");
 
-        var p = Process.Start(psi) ?? throw new LLMException("Claude Code: не удалось запустить процесс.");
+        Process p;
+        try
+        {
+            p = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            // Claude Code may read the file at any time while it runs: delete it only once the process is gone.
+            p.Exited += (_, _) => TryDelete(sysFile);
+            if (!p.Start()) throw new LLMException("Claude Code: не удалось запустить процесс.");
+        }
+        catch
+        {
+            TryDelete(sysFile);
+            throw;
+        }
         p.StandardInput.AutoFlush = true;
         return new Spawned(p, Key(r));
     }

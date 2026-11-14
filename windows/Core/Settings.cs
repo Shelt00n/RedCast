@@ -207,7 +207,11 @@ public sealed class AppSettings : Observable
                 if (s != null) return s;
             }
         }
-        catch { /* broken file → defaults */ }
+        catch
+        {
+            // Broken file → defaults, but keep a copy instead of overwriting it with the next Save().
+            try { File.Copy(FilePath, FilePath + ".broken", overwrite: true); } catch { }
+        }
         return new AppSettings();
     }
 
@@ -216,7 +220,18 @@ public sealed class AppSettings : Observable
         try
         {
             Directory.CreateDirectory(Dir);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, JsonOptions));
+            // Write a temp file and swap it in: a crash or power loss mid-write can't leave
+            // a half-written settings.json (API key, resume, hotkeys would be lost).
+            var tmp = FilePath + ".tmp";
+            using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var w = new StreamWriter(fs, new UTF8Encoding(false)))
+            {
+                w.Write(JsonSerializer.Serialize(this, JsonOptions));
+                w.Flush();
+                fs.Flush(flushToDisk: true);
+            }
+            if (File.Exists(FilePath)) File.Replace(tmp, FilePath, null);
+            else File.Move(tmp, FilePath);
         }
         catch { }
     }

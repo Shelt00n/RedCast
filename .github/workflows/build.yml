@@ -21,7 +21,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Toolchain
         run: |
@@ -29,14 +29,16 @@ jobs:
           if [ -n "$XC" ]; then sudo xcode-select -s "$XC"; fi
           swift --version
 
+      # Same condition as the release job: a tag without a version bump would ship old binaries
+      # under a new tag, and the updater would offer the same update forever.
       - name: Check version matches release
-        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ inputs.version || github.ref_name }}
         run: |
           V="${VERSION#v}"
-          grep -q "<string>$V</string>" macos/Resources/Info.plist || { echo "Info.plist version != $V"; exit 1; }
-          grep -q "<Version>$V</Version>" windows/RedCast.csproj || { echo "RedCast.csproj version != $V"; exit 1; }
+          grep -qF "<key>CFBundleShortVersionString</key><string>$V</string>" macos/Resources/Info.plist || { echo "Info.plist version != $V"; exit 1; }
+          grep -qF "<Version>$V</Version>" windows/RedCast.csproj || { echo "RedCast.csproj version != $V"; exit 1; }
 
       - name: Build RedCast.app
         working-directory: macos
@@ -51,7 +53,7 @@ jobs:
           cd macos/build
           ditto -c -k --sequesterRsrc --keepParent RedCast.app "$GITHUB_WORKSPACE/RedCast-macOS.zip"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: RedCast-macOS
           path: RedCast-macOS.zip
@@ -61,9 +63,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '8.0.x'
 
@@ -84,7 +86,7 @@ jobs:
           Copy-Item windows/README.md out/RedCast/README.md
           Compress-Archive -Path out/RedCast -DestinationPath RedCast-Windows.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: RedCast-Windows
           path: RedCast-Windows.zip
@@ -95,14 +97,14 @@ jobs:
     needs: [macos, windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.version || github.ref_name }}
           target_commitish: ${{ github.sha }}
