@@ -155,7 +155,12 @@ final class AppState: ObservableObject {
         isListening = true
         sessionStart = Date()
         if settings.backend == .api && settings.apiKey.trimmingCharacters(in: .whitespaces).isEmpty {
-            showError("Подсказок не будет: не задан API-ключ. Откройте вкладку «Настройки» → Claude.")
+            showError("Подсказок не будет: не задан API-ключ. Откройте вкладку «Настройки» → 1. Подключение модели.")
+        } else if let p = settings.backend.provider, p.needsKey,
+                  settings.providerKey.trimmingCharacters(in: .whitespaces).isEmpty {
+            showError("Подсказок не будет: не задан API-ключ (\(p.shortName)). Откройте вкладку «Настройки» → 1. Подключение модели.")
+        } else if settings.backend.provider != nil, settings.providerModel.isEmpty {
+            showError("Подсказок не будет: не выбрана модель. Откройте вкладку «Настройки» → 1. Подключение модели → «Список моделей».")
         }
         prewarmLLM()
         keepAlive?.invalidate()
@@ -553,7 +558,15 @@ final class AppState: ObservableObject {
 
     private func makeRequest(text: String, image: Data? = nil) -> LLMRequest {
         LLMRequest(system: Prompts.system(settings), text: text, imageJPEG: image,
-                   model: settings.model, effort: settings.effort, fastMode: settings.fastMode)
+                   model: settings.activeModel, effort: settings.effort, fastMode: settings.fastMode)
+    }
+
+    /// Client for the current connection: Claude API, Claude Code or an OpenAI-compatible provider.
+    private var currentClient: LLMClient {
+        if let p = settings.backend.provider {
+            return OpenAICompatClient(provider: p, key: settings.providerKey, baseURL: settings.providerURL)
+        }
+        return settings.backend == .api ? apiClient : cliClient
     }
 
     func prewarmLLM() {
@@ -566,6 +579,8 @@ final class AppState: ObservableObject {
         case .claudeCode:
             let client = cliClient
             Task.detached(priority: .utility) { client.prewarm(req) }
+        default:
+            break   // other providers have no prompt cache to warm
         }
     }
 
@@ -596,8 +611,7 @@ final class AppState: ObservableObject {
         currentAnswerID = item.id
 
         let request = makeRequest(text: prompt, image: image)
-        let client: LLMClient
-        if settings.backend == .api { client = apiClient } else { client = cliClient }
+        let client = currentClient
         let id = item.id
         answerTask = Task { [weak self] in
             do {

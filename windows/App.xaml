@@ -557,7 +557,9 @@
                     <ControlTemplate TargetType="ContextMenu">
                         <Border Background="{StaticResource Popup}" BorderBrush="{StaticResource LineStrong}" BorderThickness="1"
                                 CornerRadius="10" Padding="4" MinWidth="200">
-                            <StackPanel IsItemsHost="True"/>
+                            <ScrollViewer MaxHeight="360" VerticalScrollBarVisibility="Auto">
+                                <StackPanel IsItemsHost="True"/>
+                            </ScrollViewer>
                         </Border>
                     </ControlTemplate>
                 </Setter.Value>

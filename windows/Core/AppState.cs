@@ -342,8 +342,13 @@ public sealed class AppState : Observable
         if (IsListening) return;
         IsListening = true;
         _sessionStart = DateTime.Now;
+        var provider = Settings.ActiveProvider;
         if (Settings.Backend == "api" && string.IsNullOrWhiteSpace(Settings.ApiKey))
-            ShowError("Подсказок не будет: не задан API-ключ. Откройте вкладку «Настройки» → Claude.");
+            ShowError("Подсказок не будет: не задан API-ключ. Откройте вкладку «Настройки» → 1. Подключение модели.");
+        else if (provider != null && provider.NeedsKey && string.IsNullOrWhiteSpace(Settings.ProviderKey))
+            ShowError($"Подсказок не будет: не задан API-ключ ({provider.Title.Split(" — ")[0]}). Откройте вкладку «Настройки» → 1. Подключение модели.");
+        else if (provider != null && string.IsNullOrWhiteSpace(Settings.ProviderModel))
+            ShowError("Подсказок не будет: не выбрана модель. Откройте вкладку «Настройки» → 1. Подключение модели → «Список моделей».");
         PrewarmLLM();
         _keepAlive?.Stop();
         _keepAlive = new DispatcherTimer { Interval = TimeSpan.FromMinutes(4) };
@@ -589,12 +594,15 @@ public sealed class AppState : Observable
     }
 
     LLMRequest MakeRequest(string text, byte[]? image) =>
-        new(Prompts.System(Settings), text, image, Settings.Model, Settings.Effort, Settings.FastMode);
+        new(Prompts.System(Settings), text, image, Settings.ActiveModel, Settings.Effort, Settings.FastMode);
 
-    ILLMClient Client => Settings.Backend == "api" ? _api : _cli;
+    ILLMClient Client => Settings.ActiveProvider is Provider p
+        ? new OpenAICompatClient(p, Settings.ProviderKey, Settings.ProviderUrl)
+        : Settings.Backend == "api" ? _api : _cli;
 
     public void PrewarmLLM()
     {
+        if (Settings.ActiveProvider != null) return;   // no prompt cache to warm on these APIs
         var req = MakeRequest("ping", null);
         if (Settings.Backend == "api")
         {

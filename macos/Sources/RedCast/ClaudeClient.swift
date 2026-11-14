@@ -27,10 +27,12 @@ enum LLMError: LocalizedError {
     case api(String)
     case refusal
     case cli(String)
+    case message(String)
 
     var errorDescription: String? {
         switch self {
-        case .noAPIKey: return "Не задан API-ключ Anthropic (Настройки → Claude)."
+        case .message(let msg): return msg
+        case .noAPIKey: return "Не задан API-ключ Anthropic (Настройки → 1. Подключение модели)."
         case .http(let code, let msg): return "Ошибка API \(code): \(msg)"
         case .api(let msg): return "Ошибка API: \(msg)"
         case .refusal: return "Модель отказалась отвечать на этот запрос."

@@ -231,7 +231,7 @@
                     </ScrollViewer>
                     <Border Grid.Row="4" Background="{StaticResource BgDeep}" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0"
                             CornerRadius="0,0,12,12" Padding="16,12,32,12">
-                        <TextBox x:Name="ManualInput" KeyDown="ManualInput_KeyDown" Background="{StaticResource Surface}"
+                        <TextBox x:Name="ManualInput" KeyDown="ManualInput_KeyDown" Background="{StaticResource Surface}" Height="32"
                                  Tag="Вопрос текстом — Enter"/>
                     </Border>
                 </Grid>
@@ -239,7 +239,7 @@
                 <!-- ===== Settings tab ===== -->
                 <ScrollViewer x:Name="SettingsView" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
                     <StackPanel Margin="16,0,8,32">
-                        <TextBlock Style="{StaticResource H}" Text="1. Подключение Claude" Margin="0,4,0,12"/>
+                        <TextBlock Style="{StaticResource H}" Text="1. Подключение модели" Margin="0,4,0,12"/>
                         <ComboBox ItemsSource="{x:Static core:Catalog.Backends}" SelectedValuePath="Id" DisplayMemberPath="Title"
                                   SelectedValue="{Binding Settings.Backend}" SelectionChanged="Backend_Changed"/>
                         <StackPanel x:Name="ApiPanel">
@@ -250,11 +250,38 @@
                         </StackPanel>
                         <StackPanel x:Name="CliPanel">
                             <TextBlock Style="{StaticResource Label}" Text="Путь к claude.exe (пусто — найти автоматически)"/>
-                            <TextBox Text="{Binding Settings.ClaudePath, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBox Text="{Binding Settings.ClaudePath, UpdateSourceTrigger=PropertyChanged}" Height="32"/>
                             <TextBlock Style="{StaticResource Hint}" Text="Один раз в PowerShell: claude → /login. Расходует лимит вашей подписки."/>
                         </StackPanel>
-                        <TextBlock Style="{StaticResource Label}" Text="Модель"/>
-                        <ComboBox ItemsSource="{x:Static core:Catalog.Models}" SelectedValuePath="Id" DisplayMemberPath="Title" SelectedValue="{Binding Settings.Model}"/>
+                        <!-- ChatGPT, Grok, Gemini, OpenRouter, DeepSeek, Mistral, Groq, Ollama, LM Studio -->
+                        <StackPanel x:Name="ProviderPanel">
+                            <StackPanel x:Name="ProviderKeyPanel">
+                                <TextBlock Style="{StaticResource Label}" Text="API-ключ"/>
+                                <PasswordBox x:Name="ProviderKeyBox" PasswordChanged="ProviderKey_Changed"/>
+                            </StackPanel>
+                            <TextBlock x:Name="ProviderHint" Style="{StaticResource Hint}"/>
+                            <StackPanel x:Name="ProviderUrlPanel">
+                                <TextBlock Style="{StaticResource Label}" Text="Адрес сервера"/>
+                                <TextBox Text="{Binding Settings.ProviderUrl, UpdateSourceTrigger=LostFocus}" FontFamily="{StaticResource MonoFont}" Height="32"/>
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource Label}" Text="Модель"/>
+                            <DockPanel>
+                                <Button x:Name="ProviderModelsButton" DockPanel.Dock="Right" Style="{StaticResource Btn}" Margin="8,0,0,0"
+                                        Click="ProviderModels_Click" ToolTip="Загрузить модели, доступные по этому ключу">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="Список моделей" VerticalAlignment="Center"/>
+                                        <TextBlock Text="&#xE70D;" Style="{StaticResource Icon}" FontSize="10" Foreground="{StaticResource Fg3}" Margin="8,0,0,0"/>
+                                    </StackPanel>
+                                </Button>
+                                <TextBox Text="{Binding Settings.ProviderModel, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" Height="32"
+                                         Tag="ID модели"/>
+                            </DockPanel>
+                            <TextBlock Style="{StaticResource Hint}" Text="Выберите модель из списка или впишите её ID. Для задач со скриншота нужна модель, которая понимает изображения."/>
+                        </StackPanel>
+                        <StackPanel x:Name="ClaudeModelPanel">
+                            <TextBlock Style="{StaticResource Label}" Text="Модель"/>
+                            <ComboBox ItemsSource="{x:Static core:Catalog.Models}" SelectedValuePath="Id" DisplayMemberPath="Title" SelectedValue="{Binding Settings.Model}"/>
+                        </StackPanel>
                         <TextBlock Style="{StaticResource Label}" Text="Глубина размышлений"/>
                         <ComboBox ItemsSource="{x:Static core:Catalog.Efforts}" SelectedValuePath="Id" DisplayMemberPath="Title" SelectedValue="{Binding Settings.Effort}"/>
                         <Button Style="{StaticResource Btn}" Content="Проверить соединение" HorizontalAlignment="Left" Margin="0,16,0,0" Click="TestConnection_Click"/>
@@ -305,7 +332,7 @@
                         <TextBox Text="{Binding Settings.AnswerFormat, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True"
                                  TextWrapping="Wrap" Height="96" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"
                                  Tag="Пусто — стандартный формат"/>
-                        <TextBlock Style="{StaticResource Hint}" Text="Опишите своими словами, как Claude должен отвечать: длина, стиль, списки или сплошной текст, нужен ли код. Применяется ко всем ответам, включая задачи и скриншоты. Пусто — стандартный формат: тезис, пункты, код."/>
+                        <TextBlock Style="{StaticResource Hint}" Text="Опишите своими словами, как модель должна отвечать: длина, стиль, списки или сплошной текст, нужен ли код. Применяется ко всем ответам, включая задачи и скриншоты. Пусто — стандартный формат: тезис, пункты, код."/>
                         <TextBlock Style="{StaticResource Label}" Text="Язык подсказок"/>
                         <ComboBox ItemsSource="{x:Static core:Catalog.AnswerLanguages}" SelectedValuePath="Id" DisplayMemberPath="Title" SelectedValue="{Binding Settings.AnswerLanguage}"/>
                         <DockPanel Margin="0,16,0,8">

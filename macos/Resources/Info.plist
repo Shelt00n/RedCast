@@ -14,6 +14,11 @@
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <!-- Ollama / LM Studio run on plain http://localhost -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key><true/>
+    </dict>
     <key>NSMicrophoneUsageDescription</key><string>RedCast распознаёт вашу речь, чтобы понимать контекст разговора.</string>
     <key>NSScreenCaptureUsageDescription</key><string>RedCast слушает звук созвона (Zoom, Meet, Teams) и делает скриншоты задач по горячей клавише.</string>
 </dict>

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -34,11 +35,11 @@ public record Option(string Id, string Title)
 
 public static class Catalog
 {
-    public static readonly Option[] Backends =
+    public static readonly Option[] Backends = new[]
     {
-        new("api", "Anthropic API — ключ (самый быстрый)"),
-        new("claudecode", "Подписка Claude Pro/Max — через Claude Code"),
-    };
+        new Option("api", "Claude — Anthropic API, ключ (самый быстрый)"),
+        new Option("claudecode", "Claude — подписка Pro/Max через Claude Code"),
+    }.Concat(Providers.All.Select(p => new Option(p.Id, p.Title))).ToArray();
 
     public static readonly Option[] Models =
     {
@@ -95,7 +96,66 @@ public sealed class AppSettings : Observable
 
     // Claude
     string _backend = "api";
-    public string Backend { get => _backend; set => Set(ref _backend, value); }
+    public string Backend
+    {
+        get => _backend;
+        set
+        {
+            if (!Set(ref _backend, value)) return;
+            OnChanged(nameof(ActiveProvider));
+            OnChanged(nameof(ProviderKey));
+            OnChanged(nameof(ProviderModel));
+            OnChanged(nameof(ProviderUrl));
+        }
+    }
+
+    // Other providers (OpenAI-compatible): key, model and server address per provider.
+    public Dictionary<string, string> ProviderKeys { get; set; } = new();     // DPAPI-protected
+    public Dictionary<string, string> ProviderModels { get; set; } = new();
+    public Dictionary<string, string> ProviderUrls { get; set; } = new();
+
+    [JsonIgnore]
+    public Provider? ActiveProvider => Providers.Find(Backend);
+
+    [JsonIgnore]
+    public string ProviderKey
+    {
+        get => ProviderKeys.TryGetValue(Backend, out var v) ? Unprotect(v) : "";
+        set
+        {
+            if (value.Trim() == ProviderKey) return;
+            ProviderKeys[Backend] = Protect(value.Trim());
+            OnChanged();
+        }
+    }
+
+    [JsonIgnore]
+    public string ProviderModel
+    {
+        get => ProviderModels.TryGetValue(Backend, out var v) ? v : "";
+        set
+        {
+            if (value.Trim() == ProviderModel) return;
+            ProviderModels[Backend] = value.Trim();
+            OnChanged();
+        }
+    }
+
+    [JsonIgnore]
+    public string ProviderUrl
+    {
+        get => ProviderUrls.TryGetValue(Backend, out var v) && v.Length > 0 ? v : ActiveProvider?.BaseUrl ?? "";
+        set
+        {
+            if (value.Trim() == ProviderUrl) return;
+            ProviderUrls[Backend] = value.Trim();
+            OnChanged();
+        }
+    }
+
+    /// <summary>The model for the current connection: a Claude model or the provider's model id.</summary>
+    [JsonIgnore]
+    public string ActiveModel => ActiveProvider != null ? ProviderModel : Model;
 
     string _apiKeyProtected = "";
     public string ApiKeyProtected { get => _apiKeyProtected; set => Set(ref _apiKeyProtected, value); }

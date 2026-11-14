@@ -36,13 +36,15 @@ struct SettingsPane: View {
     // MARK: Claude
 
     private var claudeSection: some View {
-        Section("1. Подключение Claude") {
-            Picker("Способ", selection: $settings.backend) {
+        Section("1. Подключение модели") {
+            Picker("Подключение", selection: $settings.backend) {
                 ForEach(Backend.allCases) { Text($0.title).tag($0) }
             }
-            .pickerStyle(.radioGroup)
+            .pickerStyle(.menu)
 
-            if settings.backend == .api {
+            if let p = settings.backend.provider {
+                ProviderSettings(provider: p)
+            } else if settings.backend == .api {
                 SecureField("API-ключ", text: $settings.apiKey, prompt: Text("sk-ant-…"))
                 hint("Ключ: platform.claude.com → API Keys. Оплата по факту, отдельно от подписки. Хранится в Связке ключей.")
                 Toggle("Fast mode — ещё быстрее вывод (только Opus 5.5, цена ×2)", isOn: $settings.fastMode)
@@ -51,8 +53,10 @@ struct SettingsPane: View {
                 hint("Один раз в Терминале: claude → /login. Расходует лимит вашей подписки.")
             }
 
-            Picker("Модель", selection: $settings.model) {
-                ForEach(Catalog.claudeModels) { Text($0.title).tag($0.id) }
+            if settings.backend.provider == nil {
+                Picker("Модель", selection: $settings.model) {
+                    ForEach(Catalog.claudeModels) { Text($0.title).tag($0.id) }
+                }
             }
             Picker("Глубина размышлений", selection: $settings.effort) {
                 ForEach(Catalog.efforts) { Text($0.title).tag($0.id) }
@@ -277,6 +281,67 @@ struct SettingsPane: View {
 
     private func hint(_ text: String, warning: Bool = false) -> some View {
         Text(text).font(.system(size: 12)).foregroundStyle(warning ? Theme.warning : Theme.fg3).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Key, server address and model of an OpenAI-compatible provider (ChatGPT, Grok, Gemini, OpenRouter…).
+struct ProviderSettings: View {
+    let provider: Provider
+    @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var state: AppState
+    @State private var models: [String] = []
+    @State private var loading = false
+
+    var body: some View {
+        if provider.needsKey {
+            SecureField("API-ключ", text: $settings.providerKey, prompt: Text("ключ \(provider.shortName)"))
+        }
+        hint(provider.keyHint + (provider.needsKey ? " Хранится в Связке ключей." : ""))
+        if provider.local {
+            TextField("Адрес сервера", text: Binding(get: { settings.providerURL }, set: { settings.providerURL = $0 }))
+                .font(.system(size: 12, design: .monospaced))
+        }
+        HStack(spacing: 8) {
+            TextField("Модель", text: Binding(get: { settings.providerModel }, set: { settings.providerModel = $0 }),
+                      prompt: Text("ID модели"))
+                .font(.system(size: 12, design: .monospaced))
+            if loading {
+                ProgressView().controlSize(.small)
+            } else if models.isEmpty {
+                Button("Список моделей") { Task { await load() } }
+                    .help("Загрузить модели, доступные по этому ключу")
+            } else {
+                Menu("Выбрать") {
+                    ForEach(models, id: \.self) { id in
+                        Button(id) { settings.providerModel = id }
+                    }
+                }
+                .fixedSize()
+            }
+        }
+        hint("Выберите модель из списка или впишите её ID. Для задач со скриншота нужна модель, которая понимает изображения.")
+            .onChange(of: provider.id) { models = [] }
+    }
+
+    private func load() async {
+        loading = true
+        defer { loading = false }
+        do {
+            let list = try await OpenAICompatClient(provider: provider, key: settings.providerKey,
+                                                    baseURL: settings.providerURL).listModels()
+            if list.isEmpty {
+                state.showError(provider.local
+                    ? "Сервер не вернул ни одной модели. Скачайте или загрузите модель и попробуйте снова."
+                    : "Провайдер не вернул ни одной модели для этого ключа.")
+            }
+            models = list
+        } catch {
+            state.showError("Список моделей: " + error.localizedDescription)
+        }
+    }
+
+    private func hint(_ text: String) -> some View {
+        Text(text).font(.system(size: 12)).foregroundStyle(Theme.fg3).fixedSize(horizontal: false, vertical: true)
     }
 }
 

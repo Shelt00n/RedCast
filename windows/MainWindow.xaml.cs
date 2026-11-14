@@ -213,11 +213,59 @@ public partial class MainWindow : Window
         return sp;
     }
 
+    bool _loadingProviderKey;
+
     void UpdateBackendPanels()
     {
-        bool api = _s.Backend == "api";
-        ApiPanel.Visibility = api ? Visibility.Visible : Visibility.Collapsed;
-        CliPanel.Visibility = api ? Visibility.Collapsed : Visibility.Visible;
+        var p = _s.ActiveProvider;
+        static Visibility V(bool b) => b ? Visibility.Visible : Visibility.Collapsed;
+        ApiPanel.Visibility = V(_s.Backend == "api");
+        CliPanel.Visibility = V(_s.Backend == "claudecode");
+        ClaudeModelPanel.Visibility = V(p == null);
+        ProviderPanel.Visibility = V(p != null);
+        if (p == null) return;
+        ProviderKeyPanel.Visibility = V(p.NeedsKey);
+        ProviderUrlPanel.Visibility = V(p.Local);
+        ProviderHint.Text = p.KeyHint + (p.NeedsKey ? " Хранится зашифрованным в вашей учётной записи Windows." : "");
+        _loadingProviderKey = true;
+        if (ProviderKeyBox.Password != _s.ProviderKey) ProviderKeyBox.Password = _s.ProviderKey;
+        _loadingProviderKey = false;
+    }
+
+    void ProviderKey_Changed(object s, RoutedEventArgs e)
+    {
+        if (!_loadingProviderKey) _s.ProviderKey = ProviderKeyBox.Password;
+    }
+
+    async void ProviderModels_Click(object s, RoutedEventArgs e)
+    {
+        if (_s.ActiveProvider is not Provider p) return;
+        ProviderModelsButton.IsEnabled = false;
+        try
+        {
+            var models = await new OpenAICompatClient(p, _s.ProviderKey, _s.ProviderUrl).ListModelsAsync();
+            if (models.Count == 0)
+            {
+                _state.ShowError(p.Local
+                    ? "Сервер не вернул ни одной модели. Скачайте или загрузите модель и попробуйте снова."
+                    : "Провайдер не вернул ни одной модели для этого ключа.");
+                return;
+            }
+            var menu = new ContextMenu { PlacementTarget = ProviderModelsButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+            foreach (var id in models)
+            {
+                var item = new MenuItem { Header = id, FontFamily = (FontFamily)FindResource("MonoFont"), FontSize = 12 };
+                if (id == _s.ProviderModel) item.FontWeight = FontWeights.SemiBold;
+                item.Click += (_, _) => _s.ProviderModel = id;
+                menu.Items.Add(item);
+            }
+            menu.IsOpen = true;
+        }
+        catch (Exception ex)
+        {
+            _state.ShowError("Список моделей: " + ex.Message);
+        }
+        finally { ProviderModelsButton.IsEnabled = true; }
     }
 
     void UpdateCompactText()

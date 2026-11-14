@@ -4,13 +4,18 @@ import Security
 enum Backend: String, CaseIterable, Identifiable {
     case api
     case claudeCode
+    // OpenAI-compatible providers (ids match Providers.all and the Windows version)
+    case openai, xai, gemini, openrouter, deepseek, mistral, groq, ollama, lmstudio
+
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .api: return "Anthropic API — ключ (самый быстрый)"
-        case .claudeCode: return "Подписка Claude Pro/Max — через Claude Code"
+        case .api: return "Claude — Anthropic API, ключ (самый быстрый)"
+        case .claudeCode: return "Claude — подписка Pro/Max через Claude Code"
+        default: return provider?.title ?? rawValue
         }
     }
+    var provider: Provider? { Providers.find(rawValue) }
 }
 
 enum SpeechLanguage: String, CaseIterable, Identifiable {
@@ -87,7 +92,41 @@ final class AppSettings: ObservableObject {
     private let d = UserDefaults.standard
 
     // Claude
-    @Published var backend: Backend { didSet { d.set(backend.rawValue, forKey: "backend") } }
+    @Published var backend: Backend {
+        didSet {
+            d.set(backend.rawValue, forKey: "backend")
+            loadingProviderKey = true
+            providerKey = backend.provider.flatMap { Keychain.load(account: Self.keyAccount($0)) } ?? ""
+            loadingProviderKey = false
+        }
+    }
+
+    // Other providers: key (Keychain), model and server address per provider.
+    private var loadingProviderKey = false
+    private static func keyAccount(_ p: Provider) -> String { "provider-key-\(p.id)" }
+    /// API key of the current provider (empty for Claude backends).
+    @Published var providerKey: String {
+        didSet {
+            guard !loadingProviderKey, let p = backend.provider else { return }
+            Keychain.save(providerKey.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.keyAccount(p))
+        }
+    }
+    @Published var providerModels: [String: String] { didSet { d.set(providerModels, forKey: "providerModels") } }
+    @Published var providerURLs: [String: String] { didSet { d.set(providerURLs, forKey: "providerURLs") } }
+
+    var providerModel: String {
+        get { providerModels[backend.rawValue] ?? "" }
+        set { providerModels[backend.rawValue] = newValue.trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+    var providerURL: String {
+        get {
+            let v = providerURLs[backend.rawValue] ?? ""
+            return v.isEmpty ? (backend.provider?.baseURL ?? "") : v
+        }
+        set { providerURLs[backend.rawValue] = newValue.trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+    /// The model for the current connection: a Claude model or the provider's model id.
+    var activeModel: String { backend.provider != nil ? providerModel : model }
     @Published var apiKey: String { didSet { Keychain.save(apiKey, account: "anthropic-api-key") } }
     @Published var model: String { didSet { d.set(model, forKey: "model") } }
     @Published var effort: String { didSet { d.set(effort, forKey: "effort") } }
@@ -121,7 +160,11 @@ final class AppSettings: ObservableObject {
     @Published var showInDock: Bool { didSet { d.set(showInDock, forKey: "showInDock") } }
 
     private init() {
-        backend = Backend(rawValue: d.string(forKey: "backend") ?? "") ?? .api
+        let savedBackend = Backend(rawValue: d.string(forKey: "backend") ?? "") ?? .api
+        backend = savedBackend
+        providerKey = savedBackend.provider.flatMap { Keychain.load(account: Self.keyAccount($0)) } ?? ""
+        providerModels = d.dictionary(forKey: "providerModels") as? [String: String] ?? [:]
+        providerURLs = d.dictionary(forKey: "providerURLs") as? [String: String] ?? [:]
         apiKey = Keychain.load(account: "anthropic-api-key") ?? ""
         model = d.string(forKey: "model") ?? "claude-opus-5-5"
         effort = d.string(forKey: "effort") ?? "low"
