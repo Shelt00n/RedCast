@@ -20,7 +20,7 @@ struct SettingsPane: View {
             updateSection
             Section {
                 HStack {
-                    Button("Открыть папку с записями собеседований") {
+                    Button("Записи собеседований") {
                         try? FileManager.default.createDirectory(at: AppState.sessionsFolder, withIntermediateDirectories: true)
                         NSWorkspace.shared.open(AppState.sessionsFolder)
                     }
@@ -128,9 +128,9 @@ struct SettingsPane: View {
                     .controlSize(.small)
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.1))
+                        Capsule().fill(Theme.raised)
                         Capsule()
-                            .fill(state.micLevel > 0.85 ? Color.orange : Color.green)
+                            .fill(state.micLevel > 0.85 ? Theme.warning : Theme.positive)
                             .frame(width: geo.size.width * CGFloat(state.micLevel))
                             .animation(.linear(duration: 0.1), value: state.micLevel)
                     }
@@ -151,7 +151,7 @@ struct SettingsPane: View {
         Section("3. Как отвечать и профиль") {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("Формат ответа").font(.headline)
+                    Text("Формат ответа")
                     Spacer()
                     Menu("Шаблоны") {
                         ForEach(AnswerFormatPreset.all) { p in
@@ -165,7 +165,7 @@ struct SettingsPane: View {
                     .frame(height: 90)
                 hint(settings.answerFormat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                      ? "Пусто — стандартный формат: жирный тезис, пункты, код. Опишите своими словами, как Claude должен отвечать (длина, стиль, списки или сплошной текст, нужен ли код), — это применится ко ВСЕМ ответам, включая задачи и скриншоты."
-                     : "✓ Ваш формат применяется ко всем ответам, включая задачи и скриншоты. Очистите поле, чтобы вернуть стандартный.")
+                     : "Ваш формат применяется ко всем ответам, включая задачи и скриншоты. Очистите поле, чтобы вернуть стандартный.")
             }
             Picker("Язык подсказок", selection: $settings.answerLanguage) {
                 ForEach(AnswerLanguage.allCases) { Text($0.title).tag($0) }
@@ -227,12 +227,12 @@ struct SettingsPane: View {
                 HotKeyRow(action: action)
             }
             HStack {
-                hint("Нажмите на сочетание и введите новое. Esc — отмена. Нужен хотя бы один модификатор (⌃ ⌥ ⇧ ⌘), кроме F1–F12.")
+                hint("Работают в любом приложении. Нажмите на сочетание и введите новое, Esc — отмена. Нужен хотя бы один модификатор (⌃ ⌥ ⇧ ⌘), кроме F1–F12.")
                 Spacer()
                 Button("Сбросить") { hotkeys.resetDefaults() }.controlSize(.small)
             }
         } header: {
-            Text("5. Горячие клавиши (работают в любом приложении)")
+            Text("5. Горячие клавиши")
         }
     }
 
@@ -251,9 +251,9 @@ struct SettingsPane: View {
             }
             HStack {
                 if Updater.isRunningAppLocallySigned {
-                    hint("🔐 Подпись постоянная: разрешения macOS сохраняются после обновлений.")
+                    hint("Подпись постоянная: разрешения macOS сохраняются после обновлений.")
                 } else {
-                    hint("⚠️ Подпись временная: после обновлений macOS может снова спрашивать доступ." + (Updater.lastSigningError.map { " Ошибка: \($0)" } ?? ""))
+                    hint("Подпись временная: после обновлений macOS может снова спрашивать доступ." + (Updater.lastSigningError.map { " Ошибка: \($0)" } ?? ""), warning: true)
                 }
                 Spacer()
                 Button("Сбросить разрешение на звук") { Updater.resetScreenPermissionAndRelaunch() }
@@ -264,9 +264,9 @@ struct SettingsPane: View {
                     Button {
                         Task { await state.installUpdate() }
                     } label: {
-                        Label(state.isUpdating ? "Обновляю…" : "Обновить до \(u.version)", systemImage: "arrow.down.circle.fill")
+                        Text(state.isUpdating ? "Обновляю…" : "Обновить до \(u.version)")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(RCButtonStyle(kind: .primary, height: 36, padding: 16))
                     .disabled(state.isUpdating)
                     if state.isUpdating { ProgressView().controlSize(.small) }
                 }
@@ -275,8 +275,8 @@ struct SettingsPane: View {
         }
     }
 
-    private func hint(_ text: String) -> some View {
-        Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    private func hint(_ text: String, warning: Bool = false) -> some View {
+        Text(text).font(.system(size: 12)).foregroundStyle(warning ? Theme.warning : Theme.fg3).fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -291,29 +291,27 @@ struct HotKeyRow: View {
     ]
 
     var body: some View {
-        HStack {
-            Text(action.title)
-            if hotkeys.failed.contains(action) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(.yellow)
-                    .help("Это сочетание уже занято другой программой — выберите другое")
+        HStack(spacing: 4) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(action.title)
+                if hotkeys.failed.contains(action) {
+                    Text("Занято другой программой")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.warning)
+                        .help("Это сочетание уже занято другой программой — выберите другое")
+                }
             }
             Spacer()
             Button {
                 recording ? stopRecording() : startRecording()
             } label: {
-                Text(recording ? "Нажмите сочетание…" : (hotkeys.combos[action]?.display ?? "не задано"))
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minWidth: 150)
-            }
-            .tint(recording ? .accentColor : nil)
-            Button {
-                hotkeys.set(nil, for: action)
-            } label: {
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                KeyCap(text: recording ? "Нажмите сочетание…" : (hotkeys.combos[action]?.display ?? "не задано"),
+                       active: recording)
             }
             .buttonStyle(.plain)
-            .help("Убрать сочетание")
+            IconButton(symbol: "xmark", help: "Убрать сочетание", size: 10) {
+                hotkeys.set(nil, for: action)
+            }
         }
         .onDisappear { stopRecording() }
     }

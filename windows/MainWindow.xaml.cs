@@ -29,13 +29,12 @@ public partial class MainWindow : Window
     HotKeyAction? _recordingHotKey;
     Button? _recordingButton;
 
-    static readonly Brush Green = new SolidColorBrush(Color.FromRgb(0x22, 0xA5, 0x5B));
-    static readonly Brush Red = new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D));
-    static readonly Brush Orange = new SolidColorBrush(Color.FromRgb(0xF0, 0x8C, 0x2B));
-    static readonly Brush Blue = new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6));
-    static readonly Brush Yellow = new SolidColorBrush(Color.FromRgb(0xE8, 0xC5, 0x3A));
-    static readonly Brush Neutral = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
-    static readonly Brush Selected = new SolidColorBrush(Color.FromArgb(0x80, 0x3B, 0x82, 0xF6));
+    // Fluent icon glyphs (Segoe Fluent Icons / Segoe MDL2 Assets)
+    const string GPlay = "", GStop = "", GHeadphones = "", GMic = "",
+                 GClose = "", GChevronDown = "", GChevronRight = "";
+
+    Brush R(string key) => (Brush)FindResource(key);
+    Style S(string key) => (Style)FindResource(key);
 
     public MainWindow()
     {
@@ -86,6 +85,7 @@ public partial class MainWindow : Window
         LocationChanged += (_, _) => SaveBounds();
         SizeChanged += (_, _) => SaveBounds();
 
+        UpdateTranscriptToggle();
         UpdateAll();
     }
 
@@ -138,55 +138,77 @@ public partial class MainWindow : Window
     void UpdateAll()
     {
         bool manual = _s.IsManual;
-        ModeAuto.Background = manual ? Neutral : Selected;
-        ModeManual.Background = manual ? Selected : Neutral;
+        ModeAuto.Tag = manual ? null : "on";
+        ModeManual.Tag = manual ? "on" : null;
         AutoButtons.Visibility = manual ? Visibility.Collapsed : Visibility.Visible;
         ManualButtons.Visibility = manual ? Visibility.Visible : Visibility.Collapsed;
 
-        StartButton.Content = _state.StartLabel;
-        StartButton.Background = _state.IsListening ? Red : Green;
-        CompactStart.Content = _state.IsListening ? "■" : "▶";
-        CompactStart.Background = StartButton.Background;
+        // Start is the one primary action; while on air it turns into a quiet «Stop» with the lit tally.
+        bool live = _state.IsListening;
+        StartButton.Style = S(live ? "Btn" : "PrimaryBtn");
+        StartButton.Tag = live ? "live" : null;
+        StartButton.Content = IconLabel(live ? null : GPlay, _state.StartLabel, live);
+        CompactStart.Content = live ? GStop : GPlay;
+        CompactStart.Foreground = live ? R("Fg") : R("Fg2");
+        CompactStart.ToolTip = live ? "Стоп" : "Старт";
         CompactStart.Visibility = CompactAnswer.Visibility = manual ? Visibility.Collapsed : Visibility.Visible;
         CompactRecI.Visibility = CompactRecMe.Visibility = manual ? Visibility.Visible : Visibility.Collapsed;
 
         string Key(HotKeyAction a) => HotKeys.Get(a)?.Display ?? "";
-        RecIButton.Content = RecordContent(_state.RecordingInterviewer, "🎧  Интервьюер", Key(HotKeyAction.RecordInterviewer));
-        RecIButton.Background = _state.RecordingInterviewer ? Red : Orange;
-        RecMeButton.Content = RecordContent(_state.RecordingMe, "🎤  Я", Key(HotKeyAction.RecordMe));
-        RecMeButton.Background = _state.RecordingMe ? Red : Blue;
-        CompactRecI.Content = _state.RecordingInterviewer ? "■ 🎧" : "🎧";
-        CompactRecI.Background = RecIButton.Background;
-        CompactRecMe.Content = _state.RecordingMe ? "■ 🎤" : "🎤";
-        CompactRecMe.Background = RecMeButton.Background;
+        RecIButton.Content = RecordContent(_state.RecordingInterviewer, GHeadphones, "Интервьюер", Key(HotKeyAction.RecordInterviewer));
+        RecIButton.Tag = _state.RecordingInterviewer ? "live" : null;
+        RecMeButton.Content = RecordContent(_state.RecordingMe, GMic, "Я", Key(HotKeyAction.RecordMe));
+        RecMeButton.Tag = _state.RecordingMe ? "live" : null;
+        CompactRecI.Content = _state.RecordingInterviewer ? GStop : GHeadphones;
+        CompactRecI.Foreground = _state.RecordingInterviewer ? R("Fg") : R("Fg2");
+        CompactRecMe.Content = _state.RecordingMe ? GStop : GMic;
+        CompactRecMe.Foreground = _state.RecordingMe ? R("Fg") : R("Fg2");
 
-        Brush dot = _state.IsRecording ? Red
-            : _state.IsListening ? (_state.InterviewerSpeaking ? Orange : Green)
-            : _state.IsStarting ? Yellow : Brushes.Gray;
+        // Tally: red only while on air. Ring = the interviewer is speaking right now.
+        Brush dot = _state.IsRecording || _state.IsListening ? R("Accent")
+            : _state.IsStarting ? R("Warning") : R("Idle");
         StatusDot.Fill = dot;
         CompactDot.Fill = dot;
+        var ring = _state.IsListening && _state.InterviewerSpeaking ? Visibility.Visible : Visibility.Collapsed;
+        StatusRing.Visibility = ring;
+        CompactRing.Visibility = ring;
 
         UpdateBackendPanels();
         UpdateCompactText();
         UpdateEmptyHint();
     }
 
-    static object RecordContent(bool recording, string title, string key)
+    /// <summary>Icon (or the lit tally dot) + label, for buttons built in code.</summary>
+    UIElement IconLabel(string? glyph, string text, bool tally)
+    {
+        var sp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+        if (tally)
+            sp.Children.Add(new System.Windows.Shapes.Ellipse
+            {
+                Width = 8, Height = 8, Fill = R("Accent"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
+            });
+        else if (glyph != null)
+            sp.Children.Add(new TextBlock { Text = glyph, Style = S("Icon"), FontSize = 14, Margin = new Thickness(0, 0, 8, 0) });
+        sp.Children.Add(new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center });
+        return sp;
+    }
+
+    UIElement RecordContent(bool recording, string glyph, string title, string key)
     {
         var sp = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+        var top = (StackPanel)IconLabel(recording ? null : glyph, recording ? "Готово, получить ответ" : title, recording);
+        ((TextBlock)top.Children[^1]).FontSize = 14;
+        ((TextBlock)top.Children[^1]).FontWeight = FontWeights.Medium;
+        if (!recording) ((TextBlock)top.Children[0]).Foreground = R("Fg2");
+        sp.Children.Add(top);
         sp.Children.Add(new TextBlock
         {
-            Text = recording ? "■  Готово → ответ" : title,
-            FontWeight = FontWeights.SemiBold,
-            FontSize = 14,
+            Text = recording ? "идёт запись" : (key.Length > 0 ? key : "нажмите, чтобы записать"),
+            FontFamily = !recording && key.Length > 0 ? (FontFamily)FindResource("MonoFont") : (FontFamily)FindResource("UiFont"),
+            FontSize = 12,
+            Foreground = R("Fg3"),
             HorizontalAlignment = HorizontalAlignment.Center,
-        });
-        sp.Children.Add(new TextBlock
-        {
-            Text = recording ? "идёт запись…" : (key.Length > 0 ? key : "нажмите, чтобы записать"),
-            FontSize = 10.5,
-            Opacity = 0.85,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 4, 0, 0),
         });
         return sp;
     }
@@ -220,7 +242,7 @@ public partial class MainWindow : Window
         string Key(HotKeyAction x) => HotKeys.Get(x)?.Display ?? "не задано";
         EmptyHint.Visibility = _state.Answers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyHint.Text = _s.IsManual
-            ? $"Режим «По кнопкам»\n\n🎧 «Интервьюер» ({Key(HotKeyAction.RecordInterviewer)}): нажмите, когда интервьюер начал вопрос, и ещё раз — когда закончил. Через 1–3 секунды появится ответ.\n\n🎤 «Я» ({Key(HotKeyAction.RecordMe)}): то же для вашего микрофона — повторите вопрос вслух или начните отвечать, и RedCast подскажет, что добавить.\n\nКлавиши меняются во вкладке «Настройки»."
+            ? $"Режим «По кнопкам»\n\n«Интервьюер» ({Key(HotKeyAction.RecordInterviewer)}): нажмите, когда интервьюер начал вопрос, и ещё раз — когда закончил. Через 1–3 секунды появится ответ.\n\n«Я» ({Key(HotKeyAction.RecordMe)}): то же для вашего микрофона — повторите вопрос вслух или начните отвечать, и RedCast подскажет, что добавить.\n\nКлавиши меняются во вкладке «Настройки»."
             : $"Режим «Авто»: нажмите «Старт» и начните созвон.\n\nRedCast сам слышит вопросы интервьюера — подсказка появится через 1–3 секунды после паузы.\n{Key(HotKeyAction.AnswerNow)} — ответить сразу · {Key(HotKeyAction.Screenshot)} — задача со скриншота · {Key(HotKeyAction.ToggleWindow)} — спрятать окно · {Key(HotKeyAction.ToggleCompact)} — свернуть.\n\nКлавиши меняются во вкладке «Настройки».";
     }
 
@@ -273,7 +295,7 @@ public partial class MainWindow : Window
             FullView.Visibility = Visibility.Collapsed;
             CompactBar.Visibility = Visibility.Visible;
             ResizeMode = ResizeMode.NoResize;
-            Height = 54;
+            Height = 52;
         }
         else
         {
@@ -297,8 +319,8 @@ public partial class MainWindow : Window
     {
         HintsView.Visibility = settings ? Visibility.Collapsed : Visibility.Visible;
         SettingsView.Visibility = settings ? Visibility.Visible : Visibility.Collapsed;
-        TabHints.Background = settings ? Neutral : Selected;
-        TabSettings.Background = settings ? Selected : Neutral;
+        TabHints.Tag = settings ? null : "on";
+        TabSettings.Tag = settings ? "on" : null;
         if (settings)
         {
             BuildHotKeyRows();
@@ -332,29 +354,30 @@ public partial class MainWindow : Window
         HotKeysPanel.Children.Clear();
         foreach (var a in Enum.GetValues<HotKeyAction>())
         {
-            var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
-            var clear = new Button { Style = (Style)FindResource("IconBtn"), Content = "✕", ToolTip = "Убрать сочетание", Margin = new Thickness(6, 0, 0, 0) };
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 4), MinHeight = 32 };
+            var clear = new Button
+            {
+                Style = S("IconBtn"), Content = GClose, FontSize = 10, Width = 28, Height = 28, MinHeight = 28,
+                ToolTip = "Убрать сочетание", Margin = new Thickness(4, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+            };
             clear.Click += (_, _) => { HotKeys.Set(a, null); UpdateAll(); };
             DockPanel.SetDock(clear, Dock.Right);
             var combo = HotKeys.Get(a);
             bool recording = _recordingHotKey == a;
             var btn = new Button
             {
-                Style = (Style)FindResource("Btn"),
-                MinWidth = 150,
-                Padding = new Thickness(10, 4, 10, 4),
-                FontFamily = new FontFamily("Cascadia Mono, Consolas"),
+                Style = S("KeyCap"),
+                MinWidth = 144,
+                VerticalAlignment = VerticalAlignment.Center,
                 Content = recording ? "Нажмите сочетание…" : (combo?.Display ?? "не задано"),
-                Background = recording ? Selected : Neutral,
+                Tag = recording ? "on" : null,
             };
             btn.Click += (_, _) => StartHotKeyRecording(a, btn);
             DockPanel.SetDock(btn, Dock.Right);
-            var title = new TextBlock { Text = HotKeyInfo.Title(a), VerticalAlignment = VerticalAlignment.Center, FontSize = 13 };
+            var title = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            title.Children.Add(new TextBlock { Text = HotKeyInfo.Title(a), FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis });
             if (HotKeys.Failed.Contains(a))
-            {
-                title.Text += "  ⚠ занято другой программой";
-                title.Foreground = Yellow;
-            }
+                title.Children.Add(new TextBlock { Text = "Занято другой программой", FontSize = 12, Foreground = R("Warning") });
             row.Children.Add(clear);
             row.Children.Add(btn);
             row.Children.Add(title);
@@ -368,7 +391,7 @@ public partial class MainWindow : Window
         _recordingHotKey = a;
         _recordingButton = btn;
         btn.Content = "Нажмите сочетание…";
-        btn.Background = Selected;
+        btn.Tag = "on";
         Activate();
         Keyboard.Focus(btn);
     }
@@ -479,8 +502,15 @@ public partial class MainWindow : Window
     void TranscriptToggle_Click(object s, RoutedEventArgs e)
     {
         _transcriptVisible = !_transcriptVisible;
+        UpdateTranscriptToggle();
+    }
+
+    void UpdateTranscriptToggle()
+    {
         TranscriptScroll.Visibility = _transcriptVisible ? Visibility.Visible : Visibility.Collapsed;
-        TranscriptToggle.Content = _transcriptVisible ? "▾ Расшифровка" : "▸ Расшифровка";
+        var sp = (StackPanel)IconLabel(_transcriptVisible ? GChevronDown : GChevronRight, "Расшифровка", false);
+        ((TextBlock)sp.Children[0]).FontSize = 10;
+        TranscriptToggle.Content = sp;
     }
 
     void ManualInput_KeyDown(object s, KeyEventArgs e)

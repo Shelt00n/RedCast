@@ -278,10 +278,10 @@ extension View {
 struct GrabHandle: View {
     var body: some View {
         Capsule()
-            .fill(Color.white.opacity(0.28))
-            .frame(width: 44, height: 5)
+            .fill(Theme.lineStrong)
+            .frame(width: 32, height: 4)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 3)
+            .padding(.vertical, 4)
             .help("Потяните, чтобы переместить окно")
     }
 }
@@ -389,7 +389,6 @@ struct MainView: View {
                     if let err = state.errorMessage {
                         ErrorBanner(text: err, permission: state.errorIsPermission)
                     }
-                    Divider().opacity(0.35)
                     if ui.tab == .hints {
                         HintsPane()
                     } else {
@@ -398,51 +397,58 @@ struct MainView: View {
                 }
             }
         }
-        .background(.ultraThinMaterial)
-        .background(Color.black.opacity(0.3))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12)))
+        .foregroundStyle(Theme.fg)
+        .background(Theme.bg)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.lineStrong, lineWidth: 1))
+        .environment(\.colorScheme, .dark)
+        .tint(Theme.fg2)
         .onChange(of: settings.hideFromScreenShare) { OverlayController.shared.applySharing() }
         .onChange(of: settings.overlayOpacity) { OverlayController.shared.applySharing() }
         .onChange(of: settings.showInDock) { OverlayController.applyDockPolicy() }
     }
 }
 
+/// Tally bound to the app state.
 struct StatusDot: View {
     @EnvironmentObject var state: AppState
     var body: some View {
-        Circle()
-            .fill(!state.recording.isEmpty ? Color.red
-                  : state.isListening ? (state.speaking.contains(.interviewer) ? Color.orange : Color.green)
-                  : (state.isStarting ? Color.yellow : Color.gray))
-            .frame(width: 10, height: 10)
+        Tally(on: state.isListening || !state.recording.isEmpty,
+              starting: state.isStarting,
+              ring: state.isListening && state.speaking.contains(.interviewer))
     }
 }
 
+/// The one primary action. While on air it turns into a quiet «Стоп» with the lit tally.
 struct StartButton: View {
     @EnvironmentObject var state: AppState
     var compact = false
 
     var body: some View {
-        Button {
-            state.toggleListening()
-        } label: {
-            HStack(spacing: 5) {
-                if state.isStarting {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Image(systemName: state.isListening ? "stop.fill" : "play.fill")
-                }
-                if !compact {
+        if compact {
+            IconButton(symbol: state.isListening ? "stop" : "play",
+                       help: state.isListening ? "Стоп" : "Старт",
+                       tint: state.isListening ? Theme.fg : Theme.fg2) { state.toggleListening() }
+        } else {
+            Button {
+                state.toggleListening()
+            } label: {
+                HStack(spacing: 8) {
+                    if state.isStarting {
+                        ProgressView().controlSize(.mini)
+                    } else if state.isListening {
+                        Circle().fill(Theme.accent).frame(width: 8, height: 8)
+                    } else {
+                        Image(systemName: "play")
+                    }
                     Text(state.isListening ? "Стоп" : (state.isStarting ? "Запуск…" : "Старт"))
                 }
+                .frame(minWidth: 80)
             }
-            .frame(minWidth: compact ? 18 : 64)
+            .buttonStyle(RCButtonStyle(kind: state.isListening ? .secondary : .primary,
+                                       live: state.isListening, height: 40, padding: 20, fontSize: 14))
+            .help(state.isListening ? "Остановить прослушивание" : "Начать слушать созвон")
         }
-        .buttonStyle(.borderedProminent)
-        .tint(state.isListening ? .red : .green)
-        .controlSize(compact ? .small : .regular)
-        .help(state.isListening ? "Остановить прослушивание" : "Начать слушать созвон")
     }
 }
 
@@ -452,41 +458,44 @@ struct TopBar: View {
     @EnvironmentObject var ui: OverlayController
 
     var body: some View {
-        VStack(spacing: 8) {
-            GrabHandle().padding(.top, -6)
-            HStack(spacing: 10) {
-                HStack(spacing: 10) {
+        VStack(spacing: 12) {
+            GrabHandle().padding(.top, -4).padding(.bottom, -4)
+            HStack(spacing: 8) {
+                HStack(spacing: 8) {
                     StatusDot()
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(state.status).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                        Text(state.modelStatus).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(state.status).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                        Text(state.modelStatus).font(.system(size: 12)).foregroundStyle(Theme.fg3).lineLimit(1)
                     }
                     Spacer(minLength: 8)
                 }
-                .frame(maxWidth: .infinity, minHeight: 30)
-                Picker("", selection: $ui.tab) {
-                    ForEach(MainTab.allCases) { Text($0.title).tag($0) }
+                .frame(maxWidth: .infinity, minHeight: 32)
+                .help(state.status)
+                Segmented(selection: ui.tab,
+                          items: MainTab.allCases.map { (value: $0, title: $0.title) }) { ui.tab = $0 }
+                HStack(spacing: 0) {
+                    IconButton(symbol: "minus", help: "Свернуть в полоску", size: 12) { ui.toggleCompact() }
+                    IconButton(symbol: "xmark", help: "Скрыть окно (вернуть — значок волны в строке меню)", size: 12) { ui.hide() }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 200)
-                WindowButton(symbol: "minus", help: "Свернуть в полоску") { ui.toggleCompact() }
-                WindowButton(symbol: "xmark", help: "Скрыть окно (вернуть — значок волны в строке меню)") { ui.hide() }
             }
             if let p = state.modelProgress {
-                ProgressView(value: p).progressViewStyle(.linear).controlSize(.small)
+                ProgressView(value: p).progressViewStyle(.linear).tint(Theme.fg2)
             }
             if ui.tab == .hints {
                 HStack(spacing: 8) {
                     ModePicker()
                     Spacer()
-                    ActionButton(symbol: "camera.viewfinder", title: "Скриншот", help: "Решить задачу с экрана") { state.solveScreenshot() }
-                    ActionButton(symbol: "trash", title: nil, help: "Очистить") { state.clear() }
+                    Button { state.solveScreenshot() } label: { IconLabel(symbol: "camera.viewfinder", title: "Скриншот") }
+                        .buttonStyle(RCButtonStyle())
+                        .help("Решить задачу с экрана")
+                    IconButton(symbol: "trash", help: "Очистить подсказки и расшифровку") { state.clear() }
                 }
                 HStack(spacing: 8) {
                     if settings.listenMode == .auto {
                         StartButton()
-                        ActionButton(symbol: "bolt.fill", title: "Ответить сейчас", help: "Не ждать паузы") { state.answerNow() }
+                        Button { state.answerNow() } label: { IconLabel(symbol: "bolt", title: "Ответить сейчас") }
+                            .buttonStyle(RCButtonStyle(height: 40, padding: 16, fontSize: 14))
+                            .help("Не ждать паузы")
                         Spacer()
                     } else {
                         RecordButton(speaker: .interviewer)
@@ -495,9 +504,9 @@ struct TopBar: View {
                 }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 10)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
         .windowDraggable()
     }
 }
@@ -507,13 +516,9 @@ struct ModePicker: View {
     @EnvironmentObject var settings: AppSettings
 
     var body: some View {
-        Picker("Режим", selection: Binding(get: { settings.listenMode }, set: { state.setMode($0) })) {
-            ForEach(ListenMode.allCases) { Text($0.title).tag($0) }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 190)
-        .help("Авто — слушает всё и отвечает сам. По кнопкам — вы сами отмечаете начало и конец вопроса.")
+        Segmented(selection: settings.listenMode,
+                  items: ListenMode.allCases.map { (value: $0, title: $0.title) }) { state.setMode($0) }
+            .help("Авто — слушает всё и отвечает сам. По кнопкам — вы сами отмечаете начало и конец вопроса.")
     }
 }
 
@@ -526,68 +531,44 @@ struct RecordButton: View {
 
     private var isRecording: Bool { state.recording.contains(speaker) }
     private var action: HotKeyAction { speaker == .interviewer ? .recordInterviewer : .recordMe }
+    private var symbol: String { speaker == .interviewer ? "headphones" : "mic" }
+    private var help: String {
+        speaker == .interviewer
+            ? "Нажмите, когда интервьюер начал вопрос, и ещё раз — когда закончил: получите ответ"
+            : "Нажмите и говорите (например, повторите вопрос), нажмите ещё раз — получите подсказку"
+    }
 
     var body: some View {
-        Button {
-            state.toggleRecord(speaker)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: isRecording ? "stop.circle.fill"
-                      : (speaker == .interviewer ? "headphones" : "mic.fill"))
-                if !compact {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(isRecording ? "Готово → ответ" : (speaker == .interviewer ? "Интервьюер" : "Я"))
-                            .font(.system(size: 13, weight: .semibold))
-                        Text(isRecording ? "идёт запись…" : (hotkeys.combos[action]?.display ?? "нажмите, чтобы записать"))
-                            .font(.system(size: 10))
-                            .opacity(0.8)
+        if compact {
+            IconButton(symbol: isRecording ? "stop" : symbol, help: help,
+                       tint: isRecording ? Theme.fg : Theme.fg2) { state.toggleRecord(speaker) }
+        } else {
+            Button {
+                state.toggleRecord(speaker)
+            } label: {
+                VStack(spacing: 4) {
+                    HStack(spacing: 8) {
+                        if isRecording {
+                            Circle().fill(Theme.accent).frame(width: 8, height: 8)
+                        } else {
+                            Image(systemName: symbol).foregroundStyle(Theme.fg2)
+                        }
+                        Text(isRecording ? "Готово, получить ответ" : (speaker == .interviewer ? "Интервьюер" : "Я"))
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    if isRecording {
+                        Text("идёт запись").font(.system(size: 12)).foregroundStyle(Theme.fg3)
+                    } else if let combo = hotkeys.combos[action]?.display {
+                        Text(combo).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.fg3)
+                    } else {
+                        Text("нажмите, чтобы записать").font(.system(size: 12)).foregroundStyle(Theme.fg3)
                     }
                 }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: compact ? nil : .infinity)
-            .padding(.vertical, compact ? 0 : 3)
+            .buttonStyle(RCButtonStyle(live: isRecording, height: 56))
+            .help(help)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(isRecording ? .red : (speaker == .interviewer ? .orange : .blue))
-        .controlSize(compact ? .small : .regular)
-        .help(speaker == .interviewer
-              ? "Нажмите, когда интервьюер начал вопрос, и ещё раз — когда закончил: получите ответ"
-              : "Нажмите и говорите (например, повторите вопрос), нажмите ещё раз — получите подсказку")
-    }
-}
-
-struct WindowButton: View {
-    let symbol: String
-    let help: String
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 11, weight: .bold))
-                .frame(width: 22, height: 22)
-                .background(Circle().fill(Color.white.opacity(0.12)))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
-    }
-}
-
-struct ActionButton: View {
-    let symbol: String
-    let title: String?
-    let help: String
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            if let title {
-                Label(title, systemImage: symbol)
-            } else {
-                Image(systemName: symbol)
-            }
-        }
-        .buttonStyle(.bordered)
-        .help(help)
     }
 }
 
@@ -597,34 +578,42 @@ struct ErrorBanner: View {
     let permission: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.yellow)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(text).font(.system(size: 12)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.warning)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(text).font(.system(size: 13)).lineSpacing(3).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
                 if permission {
                     Text("Если переключатель уже включён: macOS запомнил прошлую версию RedCast. Нажмите «Сбросить разрешение» — RedCast перезапустится, и macOS спросит доступ заново. Разрешите его.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.fg2)
                         .fixedSize(horizontal: false, vertical: true)
-                    HStack {
+                    HStack(spacing: 8) {
                         Button("Сбросить разрешение и перезапустить") {
                             Updater.resetScreenPermissionAndRelaunch()
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
+                        .buttonStyle(RCButtonStyle(kind: .primary, height: 28))
                         Button("Открыть настройки") {
                             state.openPrivacySettings("Privacy_ScreenCapture")
                         }
-                        .controlSize(.small)
+                        .buttonStyle(RCButtonStyle(height: 28))
                     }
                 }
             }
-            Spacer()
-            Button { state.errorMessage = nil } label: { Image(systemName: "xmark") }
-                .buttonStyle(.plain)
+            Spacer(minLength: 0)
+            IconButton(symbol: "xmark", help: "Закрыть", size: 11) { state.errorMessage = nil }
+                .padding(.top, -6)
         }
-        .padding(10)
-        .background(Color.yellow.opacity(0.15))
+        .padding(.leading, 12)
+        .padding(.vertical, 12)
+        .padding(.trailing, 4)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.surface))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.warning.opacity(0.3), lineWidth: 1))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
     }
 }
 
@@ -641,28 +630,28 @@ struct CompactBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            StatusDot()
+        HStack(spacing: 4) {
+            StatusDot().padding(.trailing, 4)
             if settings.listenMode == .auto {
                 StartButton(compact: true)
-                Button { state.answerNow() } label: { Image(systemName: "bolt.fill") }
-                    .buttonStyle(.bordered).controlSize(.small).help("Ответить сейчас")
+                IconButton(symbol: "bolt", help: "Ответить сейчас") { state.answerNow() }
             } else {
                 RecordButton(speaker: .interviewer, compact: true)
                 RecordButton(speaker: .me, compact: true)
             }
-            Button { state.solveScreenshot() } label: { Image(systemName: "camera.viewfinder") }
-                .buttonStyle(.bordered).controlSize(.small).help("Скриншот → решение")
+            IconButton(symbol: "camera.viewfinder", help: "Задача со скриншота") { state.solveScreenshot() }
+                .padding(.trailing, 8)
             Text(lastLine)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .help(state.answers.last?.text ?? "")
-            WindowButton(symbol: "arrow.up.left.and.arrow.down.right", help: "Развернуть") { ui.toggleCompact() }
-            WindowButton(symbol: "xmark", help: "Скрыть окно") { ui.hide() }
+            IconButton(symbol: "arrow.up.left.and.arrow.down.right", help: "Развернуть", size: 12) { ui.toggleCompact() }
+            IconButton(symbol: "xmark", help: "Скрыть окно", size: 12) { ui.hide() }
         }
-        .padding(.horizontal, 12)
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .windowDraggable()
     }
@@ -680,41 +669,42 @@ struct HintsPane: View {
     var body: some View {
         VStack(spacing: 0) {
             if let u = state.updateAvailable {
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.down.circle.fill").foregroundColor(.green)
+                HStack(spacing: 12) {
+                    Circle().fill(Theme.positive).frame(width: 8, height: 8)
                     Text(state.isUpdating ? state.updateStatus : "Доступна новая версия \(u.version)")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13))
                         .lineLimit(1)
                     Spacer()
                     if state.isUpdating {
                         ProgressView().controlSize(.small)
                     } else {
                         Button("Обновить") { Task { await state.installUpdate() } }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.green)
-                            .controlSize(.small)
+                            .buttonStyle(RCButtonStyle(kind: .primary))
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(Color.green.opacity(0.14))
+                .padding(.leading, 12)
+                .padding(.trailing, 8)
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.surface))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
             }
             answersList
-            Divider().opacity(0.35)
             HStack {
                 Button {
                     showTranscript.toggle()
                 } label: {
-                    Label(showTranscript ? "Скрыть расшифровку" : "Показать расшифровку",
-                          systemImage: showTranscript ? "chevron.down" : "chevron.up")
-                        .font(.system(size: 11))
+                    HStack(spacing: 8) {
+                        Image(systemName: showTranscript ? "chevron.down" : "chevron.right").font(.system(size: 10))
+                        Text("Расшифровка")
+                    }
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                .buttonStyle(RCButtonStyle(kind: .ghost, height: 28, padding: 8, fontSize: 12))
                 Spacer()
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 4)
             .windowDraggable()
             if showTranscript { transcript }
             inputBar
@@ -726,17 +716,17 @@ struct HintsPane: View {
     private var answersList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
                     if state.answers.isEmpty { emptyHint }
                     ForEach(state.answers) { item in
-                        AnswerCard(item: item, fontSize: settings.fontSize) {
+                        AnswerCard(item: item, fontSize: settings.fontSize, isCurrent: item.id == state.currentAnswerID) {
                             state.toggleExpanded(item.id)
                         }
                         .id(item.id)
                     }
-                    Color.clear.frame(height: 24)
+                    Color.clear.frame(height: 16)
                 }
-                .padding(14)
+                .padding(.horizontal, 16)
             }
             .onChange(of: state.answers.last?.id) {
                 if let id = state.answers.last?.id {
@@ -750,26 +740,29 @@ struct HintsPane: View {
     private var emptyHint: some View {
         VStack(alignment: .leading, spacing: 8) {
             if settings.listenMode == .auto {
-                Text("Режим «Авто»: нажмите «Старт» и начните созвон").font(.system(size: settings.fontSize, weight: .semibold))
+                Text("Режим «Авто»: нажмите «Старт» и начните созвон").font(.system(size: 15, weight: .medium))
                 Text("""
                 RedCast сам слышит вопросы интервьюера — подсказка появится через 1–3 секунды после паузы.
                 \(key(.answerNow)) — ответить сразу · \(key(.screenshot)) — задача со скриншота · \(key(.toggleWindow)) — спрятать окно · \(key(.toggleCompact)) — свернуть.
                 """)
-                .font(.system(size: settings.fontSize - 2))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 13))
+                .lineSpacing(4)
+                .foregroundStyle(Theme.fg2)
             } else {
-                Text("Режим «По кнопкам»").font(.system(size: settings.fontSize, weight: .semibold))
+                Text("Режим «По кнопкам»").font(.system(size: 15, weight: .medium))
                 Text("""
-                🎧 «Интервьюер» (\(key(.recordInterviewer))): нажмите, когда интервьюер начал вопрос, и ещё раз — когда закончил. Через 1–3 секунды появится ответ.
-                🎤 «Я» (\(key(.recordMe))): то же для вашего микрофона — например, повторите вопрос вслух или начните отвечать, и RedCast подскажет, что добавить.
+                «Интервьюер» (\(key(.recordInterviewer))): нажмите, когда интервьюер начал вопрос, и ещё раз — когда закончил. Через 1–3 секунды появится ответ.
+                «Я» (\(key(.recordMe))): то же для вашего микрофона — например, повторите вопрос вслух или начните отвечать, и RedCast подскажет, что добавить.
                 """)
-                .font(.system(size: settings.fontSize - 2))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 13))
+                .lineSpacing(4)
+                .foregroundStyle(Theme.fg2)
             }
             Text("Клавиши можно поменять во вкладке «Настройки».")
-            .font(.system(size: settings.fontSize - 2))
-            .foregroundStyle(.secondary)
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.fg2)
         }
+        .padding(.top, 4)
     }
 
     private var transcript: some View {
@@ -778,7 +771,7 @@ struct HintsPane: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if state.entries.isEmpty && state.partial.isEmpty {
                         Text(state.isListening ? "Жду речь…" : "Расшифровка появится здесь")
-                            .font(.system(size: 12)).foregroundStyle(.tertiary)
+                            .font(.system(size: 13)).foregroundStyle(Theme.fg3)
                     }
                     ForEach(state.entries.suffix(40)) { e in
                         line(e.speaker, e.text, live: false)
@@ -787,8 +780,8 @@ struct HintsPane: View {
                     if let p = state.partial[.me] { line(.me, p, live: true) }
                     Color.clear.frame(height: 1).id("end")
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onChange(of: state.entries.count) { proxy.scrollTo("end") }
@@ -797,35 +790,40 @@ struct HintsPane: View {
         .frame(height: 120)
     }
 
+    /// Speakers differ by text role, not by color: the interviewer is primary, «Я» is muted.
     private func line(_ speaker: Speaker, _ text: String, live: Bool) -> some View {
         (Text(speaker == .interviewer ? "Интервьюер: " : "Я: ")
-            .foregroundColor(speaker == .interviewer ? .orange : .blue)
-            .bold()
-         + Text(text).foregroundColor(live ? .secondary : .primary).italic(live))
-            .font(.system(size: 12))
+            .foregroundColor(live ? Theme.fg3 : (speaker == .interviewer ? Theme.fg : Theme.fg3))
+            .fontWeight(.medium)
+         + Text(text).foregroundColor(live ? Theme.fg3 : Theme.fg2))
+            .font(.system(size: 13))
+            .lineSpacing(3)
             .textSelection(.enabled)
     }
 
     private var inputBar: some View {
-        HStack {
-            Image(systemName: "keyboard").foregroundStyle(.secondary)
-            TextField("Вопрос текстом → Enter", text: $manualQuestion)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .onSubmit {
-                    state.askManual(manualQuestion)
-                    manualQuestion = ""
-                }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .background(Color.black.opacity(0.15))
+        TextField("", text: $manualQuestion, prompt: Text("Вопрос текстом — Enter").foregroundColor(Theme.fg3))
+            .textFieldStyle(.plain)
+            .font(.system(size: 13))
+            .padding(.horizontal, 8)
+            .frame(height: 32)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.surface))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.lineStrong, lineWidth: 1))
+            .onSubmit {
+                state.askManual(manualQuestion)
+                manualQuestion = ""
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Theme.bgDeep)
+            .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
     }
 }
 
 struct AnswerCard: View {
     let item: AnswerItem
     let fontSize: Double
+    var isCurrent = false
     var onToggle: () -> Void = {}
 
     private var preview: String {
@@ -834,45 +832,55 @@ struct AnswerCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button(action: onToggle) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: item.expanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.tertiary)
-                    Text(item.question)
-                        .font(.system(size: fontSize - 3))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(item.expanded ? 4 : 1)
-                        .multilineTextAlignment(.leading)
-                    Spacer(minLength: 6)
-                    if item.isStreaming && item.text.isEmpty {
-                        ProgressView().controlSize(.small)
-                    } else if let t = item.firstTokenSeconds {
-                        Text(String(format: "%.1f с", t)).font(.system(size: 10)).foregroundStyle(.tertiary)
+        HStack(alignment: .top, spacing: 12) {
+            if isCurrent {
+                // On-air rule: the answer being read right now
+                RoundedRectangle(cornerRadius: 1).fill(Theme.accent).frame(width: 2).padding(.vertical, 4)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Button(action: onToggle) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: item.expanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.fg3)
+                        Text(item.question)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Theme.fg2)
+                            .lineLimit(item.expanded ? 2 : 1)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 8)
+                        if item.isStreaming && item.text.isEmpty {
+                            ProgressView().controlSize(.small)
+                        } else if let t = item.firstTokenSeconds {
+                            Text(String(format: "%.1f с", t))
+                                .font(.system(size: 12).monospacedDigit())
+                                .foregroundStyle(Theme.fg3)
+                        }
                     }
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(item.expanded ? "Свернуть ответ" : "Развернуть ответ")
+                .buttonStyle(.plain)
+                .help(item.expanded ? "Свернуть ответ" : "Развернуть ответ")
 
-            if item.expanded {
-                MarkdownText(text: item.text, fontSize: fontSize)
-            } else if !preview.isEmpty {
-                Text(preview)
-                    .font(.system(size: fontSize - 1, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            if let err = item.error {
-                Text(err).font(.system(size: 12)).foregroundColor(.red).textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                if item.expanded {
+                    MarkdownText(text: item.text, fontSize: fontSize)
+                } else if !preview.isEmpty {
+                    Text(preview)
+                        .font(.system(size: 14, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                if let err = item.error {
+                    Text(err).font(.system(size: 13)).foregroundStyle(Theme.negative).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
-        .padding(12)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(item.expanded ? 0.07 : 0.04)))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.surface))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
     }
 }
 
@@ -909,14 +917,17 @@ struct MarkdownText: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(part.body)
                             .font(.system(size: fontSize - 2, design: .monospaced))
+                            .foregroundStyle(Theme.fg)
                             .textSelection(.enabled)
-                            .padding(10)
+                            .padding(12)
                     }
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.35)))
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.bgDeep))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
                 } else {
-                    Text(Self.attributed(part.body))
+                    Text(Self.attributed(part.body, fontSize: fontSize))
                         .font(.system(size: fontSize))
-                        .lineSpacing(3)
+                        .foregroundStyle(Theme.fg)
+                        .lineSpacing(fontSize * 0.4)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -924,7 +935,7 @@ struct MarkdownText: View {
         }
     }
 
-    private static func attributed(_ s: String) -> AttributedString {
+    private static func attributed(_ s: String, fontSize: Double) -> AttributedString {
         let normalized = s.components(separatedBy: "\n").map { line -> String in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("#") {
@@ -937,6 +948,19 @@ struct MarkdownText: View {
             return line
         }.joined(separator: "\n")
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return (try? AttributedString(markdown: normalized, options: options)) ?? AttributedString(normalized)
+        var result = (try? AttributedString(markdown: normalized, options: options)) ?? AttributedString(normalized)
+        // Emphasis is semibold, not bold; bullets stay in the muted role.
+        for run in result.runs {
+            if let intent = run.inlinePresentationIntent, intent.contains(.stronglyEmphasized) {
+                result[run.range][AttributeScopes.SwiftUIAttributes.FontAttribute.self] =
+                    Font.system(size: fontSize, weight: .semibold)
+            }
+        }
+        var search = result.startIndex
+        while let r = result[search...].range(of: "•") {
+            result[r][AttributeScopes.SwiftUIAttributes.ForegroundColorAttribute.self] = Theme.fg3
+            search = r.upperBound
+        }
+        return result
     }
 }

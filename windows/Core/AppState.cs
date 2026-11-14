@@ -47,7 +47,11 @@ public sealed class AnswerItem : Observable
 
     bool _expanded = true;
     public bool IsExpanded { get => _expanded; set { if (Set(ref _expanded, value)) OnChanged(nameof(Chevron)); } }
-    public string Chevron => IsExpanded ? "▾" : "▸";
+    public string Chevron => IsExpanded ? "" : "";   // Fluent chevron down / right
+
+    // The answer being read right now (marked with the red on-air rule).
+    bool _current;
+    public bool IsCurrent { get => _current; set => Set(ref _current, value); }
 
     public string Preview
     {
@@ -134,7 +138,7 @@ public sealed class AppState : Observable
     bool _isStarting;
     public bool IsStarting { get => _isStarting; set { if (Set(ref _isStarting, value)) OnChanged(nameof(StartLabel)); } }
 
-    public string StartLabel => IsListening ? "■  Стоп" : IsStarting ? "Запуск…" : "▶  Старт";
+    public string StartLabel => IsListening ? "Стоп" : IsStarting ? "Запуск…" : "Старт";
 
     bool _interviewerSpeaking;
     public bool InterviewerSpeaking { get => _interviewerSpeaking; set => Set(ref _interviewerSpeaking, value); }
@@ -209,7 +213,7 @@ public sealed class AppState : Observable
         set { if (Set(ref _update, value)) { OnChanged(nameof(HasUpdate)); OnChanged(nameof(UpdateButtonText)); } }
     }
     public bool HasUpdate => UpdateAvailable != null;
-    public string UpdateButtonText => UpdateAvailable == null ? "" : $"⬇  Обновить до {UpdateAvailable.Version}";
+    public string UpdateButtonText => UpdateAvailable == null ? "" : $"Обновить до {UpdateAvailable.Version}";
 
     string _updateStatus = "";
     public string UpdateStatus { get => _updateStatus; set => Set(ref _updateStatus, value); }
@@ -480,8 +484,8 @@ public sealed class AppState : Observable
         if (sp == Speaker.Interviewer) { _sysQ.Invoke(() => _sysRec.Start()); RecordingInterviewer = true; }
         else { _micQ.Invoke(() => _micRec.Start()); RecordingMe = true; }
         Status = sp == Speaker.Interviewer
-            ? "● Записываю интервьюера — нажмите ещё раз, чтобы получить ответ"
-            : "● Записываю вас — нажмите ещё раз, чтобы получить ответ";
+            ? "Записываю интервьюера — нажмите ещё раз, чтобы получить ответ"
+            : "Записываю вас — нажмите ещё раз, чтобы получить ответ";
         if (!ModelReady) _ = LoadSpeechModel();
     }
 
@@ -506,8 +510,8 @@ public sealed class AppState : Observable
         _currentQuestion = text;
         _questionStartedAt = DateTime.Now;
         var ctx = Context(DateTime.Now.AddSeconds(-0.5));
-        if (sp == Speaker.Interviewer) Ask("🎧 " + text, Prompts.Question(ctx, text), null, false);
-        else Ask("🎤 " + text, Prompts.Mine(ctx, text), null, false);
+        if (sp == Speaker.Interviewer) Ask(text, Prompts.Question(ctx, text), null, false);
+        else Ask("Я: " + text, Prompts.Mine(ctx, text), null, false);
     }
 
     async Task HandleManualPartial(Speaker sp, float[] audio)
@@ -552,7 +556,7 @@ public sealed class AppState : Observable
         try
         {
             var jpeg = await Task.Run(ScreenGrabber.CaptureJpeg);
-            Ask("📷 Задача с экрана", Prompts.Screenshot(Context(DateTime.Now), !string.IsNullOrWhiteSpace(Settings.AnswerFormat)), jpeg, false);
+            Ask("Задача с экрана", Prompts.Screenshot(Context(DateTime.Now), !string.IsNullOrWhiteSpace(Settings.AnswerFormat)), jpeg, false);
         }
         catch (Exception ex) { ShowError("Скриншот не удался: " + ex.Message); }
     }
@@ -605,9 +609,9 @@ public sealed class AppState : Observable
         _answerCts?.Cancel();
         foreach (var a in Answers) a.IsStreaming = false;
 
-        var item = new AnswerItem(question);
+        var item = new AnswerItem(question) { IsCurrent = true };
         // Older answers fold into one line so the new one gets the whole window.
-        foreach (var a in Answers) a.IsExpanded = false;
+        foreach (var a in Answers) { a.IsExpanded = false; a.IsCurrent = false; }
         var idx = replaceCurrent && _currentAnswerId != null ? Answers.ToList().FindIndex(a => a.Id == _currentAnswerId) : -1;
         if (idx >= 0) Answers[idx] = item;
         else

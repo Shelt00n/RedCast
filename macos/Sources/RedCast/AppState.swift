@@ -67,7 +67,8 @@ final class AppState: ObservableObject {
     private let cliClient = ClaudeCodeClient(customPath: { AppSettings.shared.claudePath })
 
     private var answerTask: Task<Void, Never>?
-    private var currentAnswerID: UUID?
+    /// The answer being read right now (the view marks it with the red on-air rule).
+    private(set) var currentAnswerID: UUID?
     private var currentQuestion: String?
     private var questionStartedAt = Date.distantPast
     private var lastInterviewerFinalAt = Date.distantPast
@@ -370,8 +371,8 @@ final class AppState: ObservableObject {
         queue(speaker).sync { rec.start() }
         recording.insert(speaker)
         status = speaker == .interviewer
-            ? "● Записываю интервьюера — нажмите ещё раз, чтобы получить ответ"
-            : "● Записываю вас — нажмите ещё раз, чтобы получить ответ"
+            ? "Записываю интервьюера — нажмите ещё раз, чтобы получить ответ"
+            : "Записываю вас — нажмите ещё раз, чтобы получить ответ"
         if !modelReady { Task { await loadSpeechModel() } }
     }
 
@@ -394,9 +395,9 @@ final class AppState: ObservableObject {
         questionStartedAt = Date()
         let ctx = context(before: Date().addingTimeInterval(-0.5))
         if speaker == .interviewer {
-            ask(question: "🎧 " + text, prompt: Prompts.question(context: ctx, question: text), replaceCurrent: false)
+            ask(question: text, prompt: Prompts.question(context: ctx, question: text), replaceCurrent: false)
         } else {
-            ask(question: "🎤 " + text, prompt: Prompts.mine(context: ctx, text: text), replaceCurrent: false)
+            ask(question: "Я: " + text, prompt: Prompts.mine(context: ctx, text: text), replaceCurrent: false)
         }
     }
 
@@ -515,7 +516,7 @@ final class AppState: ObservableObject {
                 status = "Скриншот…"
                 let jpeg = try await ScreenGrabber.captureJPEG()
                 status = isListening ? "Слушаю…" : "Готов"
-                ask(question: "📷 Задача с экрана", prompt: Prompts.screenshot(context: context(before: Date()),
+                ask(question: "Задача с экрана", prompt: Prompts.screenshot(context: context(before: Date()),
                                                      customFormat: !settings.answerFormat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
                     image: jpeg, replaceCurrent: false)
             } catch {
