@@ -18,6 +18,12 @@ public partial class App : Application
     Mutex? _single;
     EventWaitHandle? _showSignal;
 
+    // Before WPF loads its native DLLs: an old wpfgfx_cor3.dll etc. next to the exe must not be picked up.
+    static App()
+    {
+        if (LegacyCleanup.IsSingleFile) LegacyCleanup.Run(Updater.AppDir);
+    }
+
     static string LogPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RedCast", "error.log");
 

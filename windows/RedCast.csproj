@@ -10,6 +10,10 @@
     <LangVersion>latest</LangVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
+    <!-- One RedCast.exe instead of hundreds of .NET/WPF DLLs (only the Whisper engines in runtimes\ stay outside) -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <AssemblyName>RedCast</AssemblyName>
     <RootNamespace>RedCast</RootNamespace>
     <Product>RedCast</Product>
@@ -32,8 +36,21 @@
     <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.1" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
+  <!-- Whisper.net looks for its native engines in runtimes\<rid>\ next to the exe, so they are not bundled -->
+  <Target Name="KeepWhisperRuntimesOutside" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Replace('\','/').StartsWith('runtimes/'))">
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
   <!-- Keep only the Windows x64 speech runtimes (CPU + Vulkan GPU) -->
   <Target Name="TrimRuntimes" AfterTargets="Publish">
     <RemoveDir Directories="$(PublishDir)runtimes/win-arm64;$(PublishDir)runtimes/win-x86;$(PublishDir)runtimes/vulkan/linux-x64" />
+    <!-- List of this build's files: LegacyCleanup never deletes anything from it -->
+    <ItemGroup>
+      <_RedCastPublished Include="$(PublishDir)**/*" Exclude="$(PublishDir)RedCast.files" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(PublishDir)RedCast.files" Lines="@(_RedCastPublished->'%(RecursiveDir)%(Filename)%(Extension)')" Overwrite="true" Encoding="UTF-8" />
   </Target>
 </Project>

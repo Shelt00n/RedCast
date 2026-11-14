@@ -9,6 +9,7 @@ macos/.swiftpm/
 windows/bin/
 windows/obj/
 windows/publish/
+/out/
 *.user
 .vs/
 

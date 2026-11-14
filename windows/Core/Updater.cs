@@ -188,6 +188,50 @@ public static class Updater
         }
         catch (Exception ex) { failed = true; Log("A FAILED: " + ex); }
 
+        // C. Update from an old multi-DLL build: leftovers are removed, the new build and user files are kept.
+        try
+        {
+            if (!File.Exists(Path.Combine(AppDir, "RedCast.files"))) throw new Exception("RedCast.files missing in the build");
+            var dir = Path.Combine(Path.GetTempPath(), "redcast-legacy-" + Guid.NewGuid().ToString("N"));
+            CopyDir(AppDir, dir);
+            Directory.CreateDirectory(Path.Combine(dir, "ru"));
+            foreach (var f in new[] { "RedCast.dll", "RedCast.runtimeconfig.json", "System.Runtime.dll", "coreclr.dll",
+                                      "PresentationCore.dll", "ru/NAudio.resources.dll", "ru/PresentationCore.resources.dll",
+                                      "user-file.dll" })
+                File.WriteAllText(Path.Combine(dir, f), "old");
+            File.WriteAllText(Path.Combine(dir, "RedCast.deps.json"), """
+                {"targets":{".NETCoreApp,Version=v8.0/win-x64":{
+                  "RedCast/1.0.0":{"runtime":{"RedCast.dll":{}}},
+                  "runtimepack.Microsoft.NETCore.App.Runtime.win-x64/8.0.0":{"runtime":{"System.Runtime.dll":{}},"native":{"coreclr.dll":{},"RedCast.exe":{}}},
+                  "runtimepack.Microsoft.WindowsDesktop.App.Runtime.win-x64/8.0.0":{"runtime":{"PresentationCore.dll":{}}},
+                  "NAudio/2.2.1":{"resources":{"lib/net6.0/ru/NAudio.resources.dll":{"locale":"ru"}}}}}}
+                """);
+            LegacyCleanup.Run(dir);
+            var left = new[] { "RedCast.dll", "RedCast.runtimeconfig.json", "System.Runtime.dll", "coreclr.dll",
+                               "PresentationCore.dll", "ru/NAudio.resources.dll", "ru/PresentationCore.resources.dll",
+                               "RedCast.deps.json" }
+                .Where(f => File.Exists(Path.Combine(dir, f))).ToList();
+            if (left.Count > 0) throw new Exception("not deleted: " + string.Join(", ", left));
+            if (Directory.Exists(Path.Combine(dir, "ru"))) throw new Exception("empty ru\\ folder not deleted");
+            if (!File.Exists(Path.Combine(dir, "RedCast.exe"))) throw new Exception("deleted RedCast.exe");
+            if (!File.Exists(Path.Combine(dir, "user-file.dll"))) throw new Exception("deleted a file not listed in deps.json");
+            foreach (var f in File.ReadAllLines(Path.Combine(dir, "RedCast.files")).Where(x => x.Trim().Length > 0))
+                if (!File.Exists(Path.Combine(dir, f.Trim()))) throw new Exception("deleted a file of the new build: " + f);
+            Log("C legacy DLLs removed, new build and user files kept ✓");
+        }
+        catch (Exception ex) { failed = true; Log("C FAILED: " + ex.Message); }
+
+        // D. Speech engine: the native Whisper libraries from runtimes\ load from the single-file exe.
+        try
+        {
+            using var t = new Transcriber();
+            await t.LoadAsync("tiny", useGpu: true, new Progress<double>());
+            var lib = Whisper.net.LibraryLoader.RuntimeOptions.LoadedLibrary?.ToString() ?? "?";
+            var text = await t.TranscribeAsync(new float[16000 * 2], "ru", "", urgent: true);
+            Log($"D Whisper loaded ({lib}), transcribed 2 s of silence: \"{text.Trim()}\" ✓");
+        }
+        catch (Exception ex) { failed = true; Log("D FAILED: " + ex); }
+
         // B. Online: latest release from GitHub → download → unpack → version check.
         try
         {
