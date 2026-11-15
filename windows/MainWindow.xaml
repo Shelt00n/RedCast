@@ -214,7 +214,7 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <TextBlock TextWrapping="Wrap" FontSize="13" LineHeight="20" Margin="0,0,0,4" Foreground="{StaticResource Fg2}">
-                                            <Run Text="{Binding Label, Mode=OneWay}" FontWeight="Medium" Foreground="{Binding IsInterviewer, Mode=OneWay, Converter={StaticResource SpeakerBrush}}"/><Run Text="{Binding Text, Mode=OneWay}"/>
+                                            <Run Text="{Binding Label, Mode=OneWay}" FontWeight="Medium" Foreground="{Binding IsInterviewer, Mode=OneWay, Converter={StaticResource SpeakerBrush}}"/><Run Text="{Binding Text, Mode=OneWay}"/><Run Text="{Binding RecognitionLabel, Mode=OneWay}" Foreground="{StaticResource Fg3}" FontSize="12" Typography.NumeralAlignment="Tabular" ToolTip="Время распознавания после конца фразы"/>
                                         </TextBlock>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>

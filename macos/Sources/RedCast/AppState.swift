@@ -12,6 +12,8 @@ struct TranscriptEntry: Identifiable {
     let speaker: Speaker
     let text: String
     let date: Date
+    /// From the end of the phrase to ready text, waiting in the queue included (shown in the transcript).
+    var recognitionSeconds: Double? = nil
 }
 
 struct AnswerItem: Identifiable {
@@ -388,14 +390,16 @@ final class AppState: ObservableObject {
         partial[speaker] = nil
         status = "Распознаю…"
         if !modelReady { await loadSpeechModel() }
+        let started = Date()
         let text = await transcriber.transcribe(
             audio, language: settings.speechLanguage.whisperCode, vocabulary: settings.vocabulary, urgent: true)
+        let seconds = Date().timeIntervalSince(started)
         status = recording.isEmpty ? "Готов — нажмите «Интервьюер» или «Я»" : status
         guard !text.isEmpty else {
             showError("Речь не распознана. Проверьте, что звук идёт, и попробуйте ещё раз.")
             return
         }
-        entries.append(TranscriptEntry(speaker: speaker, text: text, date: Date()))
+        entries.append(TranscriptEntry(speaker: speaker, text: text, date: Date(), recognitionSeconds: seconds))
         currentQuestion = text
         questionStartedAt = Date()
         let ctx = context(before: Date().addingTimeInterval(-0.5))
@@ -432,9 +436,11 @@ final class AppState: ObservableObject {
 
     private func handleFinal(_ speaker: Speaker, _ audio: [Float]) async {
         speaking.remove(speaker)
+        let started = Date()
         let text = await transcriber.transcribe(
             audio, language: settings.speechLanguage.whisperCode, vocabulary: settings.vocabulary,
             urgent: speaker == .interviewer)
+        let seconds = Date().timeIntervalSince(started)
         partial[speaker] = nil
         guard !text.isEmpty, isListening, settings.listenMode == .auto else { return }
         if speaker == .me {
@@ -442,7 +448,7 @@ final class AppState: ObservableObject {
             if isEcho(text) { return }
             lastMeSpeechAt = Date()
         }
-        entries.append(TranscriptEntry(speaker: speaker, text: text, date: Date()))
+        entries.append(TranscriptEntry(speaker: speaker, text: text, date: Date(), recognitionSeconds: seconds))
         if speaker == .interviewer { interviewerSaid(text) }
     }
 

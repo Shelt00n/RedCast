@@ -774,7 +774,7 @@ struct HintsPane: View {
                             .font(.system(size: 13)).foregroundStyle(Theme.fg3)
                     }
                     ForEach(state.entries.suffix(40)) { e in
-                        line(e.speaker, e.text, live: false)
+                        line(e.speaker, e.text, live: false, seconds: e.recognitionSeconds)
                     }
                     if let p = state.partial[.interviewer] { line(.interviewer, p, live: true) }
                     if let p = state.partial[.me] { line(.me, p, live: true) }
@@ -791,12 +791,16 @@ struct HintsPane: View {
     }
 
     /// Speakers differ by text role, not by color: the interviewer is primary, «Я» is muted.
-    private func line(_ speaker: Speaker, _ text: String, live: Bool) -> some View {
-        (Text(speaker == .interviewer ? "Интервьюер: " : "Я: ")
+    /// `seconds` — how long recognition took (shown muted at the end of the line).
+    private func line(_ speaker: Speaker, _ text: String, live: Bool, seconds: Double? = nil) -> some View {
+        let base = Text(speaker == .interviewer ? "Интервьюер: " : "Я: ")
             .foregroundColor(live ? Theme.fg3 : (speaker == .interviewer ? Theme.fg : Theme.fg3))
             .fontWeight(.medium)
-         + Text(text).foregroundColor(live ? Theme.fg3 : Theme.fg2))
-            .font(.system(size: 13))
+            + Text(text).foregroundColor(live ? Theme.fg3 : Theme.fg2)
+        let full = seconds.map { base + Text(String(format: "  · %.1f с", $0)).foregroundColor(Theme.fg3) } ?? base
+        return full
+            .font(.system(size: 13).monospacedDigit())
+            .help(seconds.map { String(format: "Распознано за %.1f с после конца фразы", $0) } ?? "")
             .lineSpacing(3)
             .textSelection(.enabled)
     }

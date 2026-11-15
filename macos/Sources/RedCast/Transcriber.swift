@@ -127,15 +127,17 @@ actor Transcriber {
     func transcribe(_ samples: [Float], language: String?, vocabulary: String, urgent: Bool = false) async -> String {
         await acquire(urgent: urgent)
         defer { release() }
-        return await run(samples, language: language, vocabulary: vocabulary)
+        return await run(samples, language: language, vocabulary: vocabulary, retries: 3)
     }
 
     /// Live caption: skipped if the model is busy so it never delays a final result.
+    /// No temperature-fallback retries: a final result that arrives while a caption is being decoded
+    /// waits for it, and retries can make one caption pass several times longer.
     func transcribePartialIfIdle(_ samples: [Float], language: String?, vocabulary: String) async -> String? {
         guard !busy, pipe != nil else { return nil }
         busy = true
         defer { release() }
-        return await run(samples, language: language, vocabulary: vocabulary)
+        return await run(samples, language: language, vocabulary: vocabulary, retries: 0)
     }
 
     // MARK: - Internals
@@ -174,14 +176,14 @@ actor Transcriber {
         return promptTokens
     }
 
-    private func run(_ samples: [Float], language: String?, vocabulary: String) async -> String {
+    private func run(_ samples: [Float], language: String?, vocabulary: String, retries: Int) async -> String {
         guard let pipe, !samples.isEmpty else { return "" }
         let options = DecodingOptions(
             verbose: false,
             task: .transcribe,
             language: language,
             temperature: 0,
-            temperatureFallbackCount: 3,
+            temperatureFallbackCount: retries,
             usePrefillPrompt: true,
             detectLanguage: language == nil,
             skipSpecialTokens: true,

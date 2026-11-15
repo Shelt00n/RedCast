@@ -15,10 +15,16 @@ public enum Speaker { Interviewer, Me }
 
 public sealed class TranscriptEntry
 {
-    public TranscriptEntry(Speaker speaker, string text) { Speaker = speaker; Text = text; Date = DateTime.Now; }
+    public TranscriptEntry(Speaker speaker, string text, double? recognitionSeconds = null)
+    {
+        Speaker = speaker; Text = text; Date = DateTime.Now; RecognitionSeconds = recognitionSeconds;
+    }
     public Speaker Speaker { get; }
     public string Text { get; }
     public DateTime Date { get; }
+    /// <summary>From the end of the phrase to ready text, waiting in the queue included.</summary>
+    public double? RecognitionSeconds { get; }
+    public string RecognitionLabel => RecognitionSeconds is double s ? $"  · {s:0.0} с" : "";
     public string Label => Speaker == Speaker.Interviewer ? "Интервьюер: " : "Я: ";
     public bool IsInterviewer => Speaker == Speaker.Interviewer;
 }
@@ -427,7 +433,9 @@ public sealed class AppState : Observable
         if (sp == Speaker.Interviewer) InterviewerSpeaking = false;
         var lang = Settings.WhisperLanguage;
         var vocab = Settings.Vocabulary;
+        var started = DateTime.Now;
         var text = await Task.Run(() => _transcriber.TranscribeAsync(audio, lang, vocab, sp == Speaker.Interviewer));
+        var seconds = (DateTime.Now - started).TotalSeconds;
         if (sp == Speaker.Interviewer) PartialInterviewer = "";
         if (string.IsNullOrEmpty(text) || !IsListening || Settings.IsManual) return;
         if (sp == Speaker.Me)
@@ -435,7 +443,7 @@ public sealed class AppState : Observable
             if (IsEcho(text)) return;   // the mic heard the interviewer from the speakers
             _lastMeAt = DateTime.Now;
         }
-        Entries.Add(new TranscriptEntry(sp, text));
+        Entries.Add(new TranscriptEntry(sp, text, seconds));
         TrimEntries();
         if (sp == Speaker.Interviewer) InterviewerSaid(text);
     }
@@ -503,14 +511,16 @@ public sealed class AppState : Observable
         if (!ModelReady) await LoadSpeechModel();
         var lang = Settings.WhisperLanguage;
         var vocab = Settings.Vocabulary;
+        var started = DateTime.Now;
         var text = await Task.Run(() => _transcriber.TranscribeAsync(audio, lang, vocab, true));
+        var seconds = (DateTime.Now - started).TotalSeconds;
         if (!IsRecording) Status = "Готов — нажмите «Интервьюер» или «Я»";
         if (string.IsNullOrEmpty(text))
         {
             ShowError("Речь не распознана. Проверьте, что звук идёт, и попробуйте ещё раз.");
             return;
         }
-        Entries.Add(new TranscriptEntry(sp, text));
+        Entries.Add(new TranscriptEntry(sp, text, seconds));
         TrimEntries();
         _currentQuestion = text;
         _questionStartedAt = DateTime.Now;
