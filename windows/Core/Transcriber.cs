@@ -55,6 +55,7 @@ public sealed class Transcriber : IDisposable
             {
                 _factory?.Dispose();
                 _factory = null;
+                if (useGpu) VulkanGpu.PreferDiscrete();   // before the first native load: otherwise the integrated GPU is used
                 RuntimeOptions.RuntimeLibraryOrder = useGpu
                     ? new List<RuntimeLibrary> { RuntimeLibrary.Vulkan, RuntimeLibrary.Cpu, RuntimeLibrary.CpuNoAvx }
                     : new List<RuntimeLibrary> { RuntimeLibrary.Cpu, RuntimeLibrary.CpuNoAvx };
@@ -71,7 +72,9 @@ public sealed class Transcriber : IDisposable
                 _loaded = model;
                 _gpu = useGpu;
                 var lib = RuntimeOptions.LoadedLibrary?.ToString() ?? "";
-                Device = useGpu && lib.Contains("Vulkan", StringComparison.OrdinalIgnoreCase) ? "видеокарта (Vulkan)" : "процессор";
+                Device = useGpu && lib.Contains("Vulkan", StringComparison.OrdinalIgnoreCase)
+                    ? (VulkanGpu.Chosen is string gpu ? $"видеокарта {gpu} (Vulkan)" : "видеокарта (Vulkan)")
+                    : "процессор";
             }
             finally { _gate.Release(); }
 
@@ -145,6 +148,7 @@ public sealed class Transcriber : IDisposable
         if (!_gpu)
         {
             // CPU speed-up: whisper always encodes 30 s; shrink the window for short phrases.
+            // Not on the GPU: there it saves only ~0.2 s and, with some prompts, makes Whisper repeat the phrase twice.
             double seconds = samples.Length / 16000.0;
             int ctx = (int)Math.Clamp(seconds * 50 + 160, 512, 1500);
             b = b.WithAudioContextSize(ctx);

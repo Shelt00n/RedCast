@@ -228,7 +228,7 @@ public static class Updater
             await t.LoadAsync("tiny", useGpu: true, new Progress<double>());
             var lib = Whisper.net.LibraryLoader.RuntimeOptions.LoadedLibrary?.ToString() ?? "?";
             var text = await t.TranscribeAsync(new float[16000 * 2], "ru", "", urgent: true);
-            Log($"D Whisper loaded ({lib}), transcribed 2 s of silence: \"{text.Trim()}\" ✓");
+            Log($"D Whisper loaded ({lib}, {t.Device}), transcribed 2 s of silence: \"{text.Trim()}\" ✓");
         }
         catch (Exception ex) { failed = true; Log("D FAILED: " + ex); }
 
