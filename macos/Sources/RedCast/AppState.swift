@@ -1,4 +1,6 @@
 import AppKit
+import Combine
+import WhisperKit
 import Foundation
 import ScreenCaptureKit
 
@@ -23,8 +25,61 @@ struct AnswerItem: Identifiable {
     var isStreaming = true
     var error: String?
     let startedAt = Date()
+    /// How long speech recognition took after the question ended (nil for typed questions / screenshots).
+    var recognitionSeconds: Double?
     var firstTokenSeconds: Double?
     var expanded = true
+}
+
+/// Input levels for the meters, 0…1 about 10 times a second. Separate from AppState so the
+/// meters redraw on their own and the answer list is not re-rendered 10 times a second.
+@MainActor
+final class AudioLevels: ObservableObject {
+    static let shared = AudioLevels()
+    @Published var system: Float = 0
+    @Published var mic: Float = 0
+}
+
+/// Peak level of a stream, reported every ~100 ms. Use from one serial queue.
+final class LevelMeter: @unchecked Sendable {
+    var onLevel: (@Sendable (Float) -> Void)?
+    private var peak: Float = 0
+    private var count = 0
+
+    func feed(_ samples: [Float]) {
+        var sum: Float = 0
+        for s in samples { sum += s * s }
+        peak = max(peak, (sum / Float(max(1, samples.count))).squareRoot())
+        count += samples.count
+        if count >= 1_600 {
+            onLevel?(min(1, peak * 8))
+            peak = 0
+            count = 0
+        }
+    }
+}
+
+/// One phrase being recognised piece by piece, while the person is still talking.
+@MainActor
+final class Utterance {
+    let id: Int
+    let speaker: Speaker
+    var pieces: [Task<Recognized, Never>] = []
+    /// Recognised pieces, in order (for the live caption).
+    var done: [String] = []
+    /// Pieces whose recognition has finished (empty ones included).
+    var finished = 0
+    /// Caption of the piece being spoken right now.
+    var partial = ""
+
+    init(id: Int, speaker: Speaker) {
+        self.id = id
+        self.speaker = speaker
+    }
+
+    var caption: String {
+        (done + [partial]).filter { !$0.isEmpty }.joined(separator: " ")
+    }
 }
 
 @MainActor
@@ -38,17 +93,20 @@ final class AppState: ObservableObject {
     @Published var speaking: Set<Speaker> = []
     @Published var answers: [AnswerItem] = []
     @Published var isListening = false
-    @Published var status = "Готов"
+    /// Short transient note in the header (nil = derive the label from the state).
+    @Published var note: String?
     @Published var modelStatus = "Модель речи не загружена"
     @Published var modelReady = false
+    @Published var modelFailed = false
     @Published var modelProgress: Double?
     @Published var isStarting = false
     /// Visible error banner in the window (nil = no error).
     @Published var errorMessage: String?
     @Published var errorIsPermission = false
+    /// Phrases whose final text is being recognised right now.
+    @Published var recognizing: Set<Speaker> = []
 
     // Microphone
-    @Published var micLevel: Float = 0
     @Published var micTesting = false
     @Published var micDevices: [AudioInputDevice] = []
 
@@ -57,16 +115,23 @@ final class AppState: ObservableObject {
     @Published var updateStatus = ""
     @Published var isUpdating = false
 
+    /// «По кнопкам»: which channels are being recorded right now, and since when.
+    @Published var recording: Set<Speaker> = []
+    @Published var recordingSince: [Speaker: Date] = [:]
+
     private let transcriber = Transcriber()
     private let systemCapture = SystemAudioCapture()
     private let micCapture = MicCapture()
     private let systemSegmenter = SpeechSegmenter()
     private let micSegmenter = SpeechSegmenter()
+    private let systemRecorder = ManualRecorder()
+    private let micRecorder = ManualRecorder()
+    private let systemMeter = LevelMeter()
     private let systemQueue = DispatchQueue(label: "redcast.seg.system", qos: .userInteractive)
     private let micQueue = DispatchQueue(label: "redcast.seg.mic", qos: .userInitiated)
 
     private let apiClient = AnthropicAPIClient(apiKey: { AppSettings.shared.apiKey })
-    private let cliClient = ClaudeCodeClient(customPath: { AppSettings.shared.claudePath })
+    let cliClient = ClaudeCodeClient(customPath: { AppSettings.shared.claudePath })
 
     private var answerTask: Task<Void, Never>?
     /// The answer being read right now (the view marks it with the red on-air rule).
@@ -76,15 +141,19 @@ final class AppState: ObservableObject {
     private var lastInterviewerFinalAt = Date.distantPast
     private var lastMeSpeechAt = Date.distantPast
     private var forceAnswerOnNextFinal = false
-    private let systemRecorder = ManualRecorder()
-    private let micRecorder = ManualRecorder()
-    /// «По кнопкам»: which channels are being recorded right now.
-    @Published var recording: Set<Speaker> = []
     private var keepAlive: Timer?
     private var sessionStart = Date()
+    private var utterances: [Speaker: Utterance] = [:]
+    private var manualID = 1_000_000
+    private var settingsWatch: AnyCancellable?
+    private var lastWarmKey = ""
 
     private init() {
         wireAudio()
+        // A changed resume / model / connection: prepare the model connection again in the background.
+        settingsWatch = settings.objectWillChange
+            .debounce(for: .seconds(2), scheduler: RunLoop.main)
+            .sink { _ in Task { @MainActor in AppState.shared.prewarmIfChanged() } }
     }
 
     // MARK: - Setup
@@ -94,27 +163,40 @@ final class AppState: ObservableObject {
         let sysSeg = systemSegmenter, micSeg = micSegmenter
         let sysRec = systemRecorder, micRec = micRecorder
         let sysQ = systemQueue, micQ = micQueue
+        let meter = systemMeter
 
-        systemCapture.onSamples = { samples in sysQ.async { sysSeg.append(samples); sysRec.append(samples) } }
+        systemCapture.onSamples = { samples in
+            sysQ.async { sysSeg.append(samples); sysRec.append(samples); meter.feed(samples) }
+        }
         systemCapture.onError = { error in
             Task { @MainActor in AppState.shared.captureFailed(error) }
         }
+        meter.onLevel = { level in Task { @MainActor in AudioLevels.shared.system = level } }
         micCapture.onSamples = { samples in micQ.async { micSeg.append(samples); micRec.append(samples) } }
-        micCapture.onLevel = { level in Task { @MainActor in AppState.shared.micLevel = level } }
+        micCapture.onLevel = { level in Task { @MainActor in AudioLevels.shared.mic = level } }
 
-        sysSeg.onSpeechStart = { Task { @MainActor in AppState.shared.speechStarted(.interviewer) } }
-        sysSeg.onPartial = { audio in Task { @MainActor in await AppState.shared.handlePartial(.interviewer, audio) } }
-        sysSeg.onFinal = { audio in Task { @MainActor in await AppState.shared.handleFinal(.interviewer, audio) } }
-
-        micSeg.onSpeechStart = { Task { @MainActor in AppState.shared.speechStarted(.me) } }
-        micSeg.onFinal = { audio in Task { @MainActor in await AppState.shared.handleFinal(.me, audio) } }
-
-        sysRec.onPartial = { audio in Task { @MainActor in await AppState.shared.handleManualPartial(.interviewer, audio) } }
-        micRec.onPartial = { audio in Task { @MainActor in await AppState.shared.handleManualPartial(.me, audio) } }
+        for (seg, speaker) in [(sysSeg, Speaker.interviewer), (micSeg, Speaker.me)] {
+            seg.onSpeechStart = { id in Task { @MainActor in AppState.shared.speechStarted(speaker, id: id) } }
+            seg.onPartial = { id, audio in Task { @MainActor in await AppState.shared.handlePartial(speaker, id: id, audio) } }
+            seg.onPiece = { id, audio in Task { @MainActor in AppState.shared.handlePiece(speaker, id: id, audio) } }
+            seg.onFinal = { id, tail, voice in
+                Task { @MainActor in await AppState.shared.handleFinal(speaker, id: id, tail: tail, hasVoice: voice) }
+            }
+            seg.onDiscard = { id in Task { @MainActor in AppState.shared.discard(speaker, id: id) } }
+        }
+        for (rec, speaker) in [(sysRec, Speaker.interviewer), (micRec, Speaker.me)] {
+            rec.onPartial = { id, audio in Task { @MainActor in await AppState.shared.handlePartial(speaker, id: id, audio) } }
+            rec.onPiece = { id, audio in Task { @MainActor in AppState.shared.handlePiece(speaker, id: id, audio) } }
+        }
     }
 
     private func queue(_ speaker: Speaker) -> DispatchQueue { speaker == .interviewer ? systemQueue : micQueue }
     private func recorder(_ speaker: Speaker) -> ManualRecorder { speaker == .interviewer ? systemRecorder : micRecorder }
+
+    private var speechOptions: SpeechOptions {
+        SpeechOptions(language: settings.speechLanguage.whisperCode, vocabulary: settings.vocabulary,
+                      precise: settings.preciseTerms)
+    }
 
     private func setAutoSegmentation(_ on: Bool) {
         let silence = settings.silenceMs
@@ -152,17 +234,29 @@ final class AppState: ObservableObject {
         return true
     }
 
+    /// Problem that blocks answers right now (shown in the readiness checklist), nil = fine.
+    var connectionProblem: String? {
+        if settings.backend == .api && settings.apiKey.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "Не задан API-ключ Anthropic"
+        }
+        if let p = settings.backend.provider, p.needsKey, settings.providerKey.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "Не задан API-ключ \(p.shortName)"
+        }
+        if settings.backend.provider != nil, settings.providerModel.isEmpty {
+            return "Не выбрана модель"
+        }
+        if settings.backend == .claudeCode && !cliClient.isInstalled {
+            return "Claude Code не найден"
+        }
+        return nil
+    }
+
     private func sessionStarted() {
         guard !isListening else { return }
         isListening = true
         sessionStart = Date()
-        if settings.backend == .api && settings.apiKey.trimmingCharacters(in: .whitespaces).isEmpty {
-            showError("Подсказок не будет: не задан API-ключ. Откройте вкладку «Настройки» → 1. Подключение модели.")
-        } else if let p = settings.backend.provider, p.needsKey,
-                  settings.providerKey.trimmingCharacters(in: .whitespaces).isEmpty {
-            showError("Подсказок не будет: не задан API-ключ (\(p.shortName)). Откройте вкладку «Настройки» → 1. Подключение модели.")
-        } else if settings.backend.provider != nil, settings.providerModel.isEmpty {
-            showError("Подсказок не будет: не выбрана модель. Откройте вкладку «Настройки» → 1. Подключение модели → «Список моделей».")
+        if let problem = connectionProblem {
+            showError("Подсказок не будет: \(problem.lowercased()). Откройте настройки (⚙︎) → «Модель ИИ».")
         }
         prewarmLLM()
         keepAlive?.invalidate()
@@ -174,6 +268,7 @@ final class AppState: ObservableObject {
     func loadSpeechModel() async {
         let model = settings.whisperModel
         modelReady = false
+        modelFailed = false
         modelProgress = Transcriber.localFolder(for: model) == nil ? 0 : nil
         modelStatus = modelProgress == nil
             ? "Загрузка модели речи в память…"
@@ -196,8 +291,9 @@ final class AppState: ObservableObject {
             modelStatus = "Распознавание готово"
         } catch {
             modelProgress = nil
+            modelFailed = true
             modelStatus = "Ошибка модели речи"
-            showError("Не удалось загрузить модель речи: \(error.localizedDescription). Проверьте интернет и нажмите «Скачать модель заново» во вкладке «Настройки».")
+            showError("Не удалось загрузить модель речи: \(error.localizedDescription). Проверьте интернет и нажмите «Скачать модель заново» в настройках → «Речь».")
         }
     }
 
@@ -220,7 +316,7 @@ final class AppState: ObservableObject {
     func toggleMicTest() async {
         if micTesting {
             micTesting = false
-            if !isListening { micCapture.stop() }
+            if !isListening && recording.isEmpty { micCapture.stop() }
             return
         }
         errorMessage = nil
@@ -289,13 +385,12 @@ final class AppState: ObservableObject {
         guard settings.listenMode != mode else { return }
         stop()
         settings.listenMode = mode
-        status = mode == .auto ? "Готов — нажмите «Старт»" : "Готов — нажмите «Интервьюер» или «Я»"
     }
 
     func toggleListening() {
         Task {
             if settings.listenMode == .manual {
-                if isListening { stop() } else { status = "Режим «По кнопкам»: нажмите «Интервьюер» или «Я»" }
+                if isListening { stop() } else { note = "Режим «По кнопкам»: нажмите «Интервьюер» или «Я»" }
                 return
             }
             if isListening { stop() } else { await start() }
@@ -307,22 +402,16 @@ final class AppState: ObservableObject {
         isStarting = true
         defer { isStarting = false }
         errorMessage = nil
+        note = nil
         if !modelReady {
-            status = "Жду модель речи — прослушивание начнётся автоматически"
+            note = "Жду модель речи — прослушивание начнётся само"
             await loadSpeechModel()
+            note = nil
         }
-        guard modelReady else {
-            status = "Готов"
-            return
-        }
-        status = "Запускаю…"
+        guard modelReady else { return }
         setAutoSegmentation(true)
-        guard await ensureCaptures(system: true, mic: settings.captureMic, micRequired: false) else {
-            status = "Готов"
-            return
-        }
+        guard await ensureCaptures(system: true, mic: settings.captureMic, micRequired: false) else { return }
         sessionStarted()
-        status = "Слушаю…"
     }
 
     func stop() {
@@ -338,12 +427,13 @@ final class AppState: ObservableObject {
         isListening = false
         micTesting = false
         recording.removeAll()
+        recordingSince.removeAll()
         speaking.removeAll()
         partial.removeAll()
-        if wasListening {
-            status = "Пауза"
-            saveSession()
-        }
+        utterances.removeAll()
+        AudioLevels.shared.system = 0
+        AudioLevels.shared.mic = 0
+        if wasListening { saveSession() }
     }
 
     private func captureFailed(_ error: Error) {
@@ -370,86 +460,129 @@ final class AppState: ObservableObject {
             settings.listenMode = .manual
         }
         errorMessage = nil
+        note = nil
         setAutoSegmentation(false)
         let ok = await ensureCaptures(system: speaker == .interviewer, mic: speaker == .me, micRequired: true)
         guard ok else { return }
         sessionStarted()
+        manualID += 1
+        let id = manualID
+        utterances[speaker] = Utterance(id: id, speaker: speaker)
         let rec = recorder(speaker)
-        queue(speaker).sync { rec.start() }
+        queue(speaker).sync { rec.start(id: id) }
         recording.insert(speaker)
-        status = speaker == .interviewer
-            ? "Записываю интервьюера — нажмите ещё раз, чтобы получить ответ"
-            : "Записываю вас — нажмите ещё раз, чтобы получить ответ"
+        recordingSince[speaker] = Date()
         if !modelReady { Task { await loadSpeechModel() } }
     }
 
     private func finishRecording(_ speaker: Speaker) async {
         let rec = recorder(speaker)
-        let audio = queue(speaker).sync { rec.stop() }
+        let stopped = queue(speaker).sync { rec.stop() }
         recording.remove(speaker)
-        partial[speaker] = nil
-        status = "Распознаю…"
-        if !modelReady { await loadSpeechModel() }
-        let started = Date()
-        let text = await transcriber.transcribe(
-            audio, language: settings.speechLanguage.whisperCode, vocabulary: settings.vocabulary, urgent: true)
-        let seconds = Date().timeIntervalSince(started)
-        status = recording.isEmpty ? "Готов — нажмите «Интервьюер» или «Я»" : status
-        guard !text.isEmpty else {
+        recordingSince[speaker] = nil
+        guard let u = utterances[speaker] else { return }
+        recognizing.insert(speaker)
+        let result = await finish(u, tail: stopped.tail, hasVoice: stopped.hasVoice, urgent: true)
+        recognizing.remove(speaker)
+        partial[speaker] = utterances[speaker]?.caption.nilIfEmpty
+        guard !result.text.isEmpty else {
             showError("Речь не распознана. Проверьте, что звук идёт, и попробуйте ещё раз.")
             return
         }
-        entries.append(TranscriptEntry(speaker: speaker, text: text, date: Date(), recognitionSeconds: seconds))
-        currentQuestion = text
+        entries.append(TranscriptEntry(speaker: speaker, text: result.text, date: Date(), recognitionSeconds: result.seconds))
+        currentQuestion = result.text
         questionStartedAt = Date()
         let ctx = context(before: Date().addingTimeInterval(-0.5))
         if speaker == .interviewer {
-            ask(question: text, prompt: Prompts.question(context: ctx, question: text), replaceCurrent: false)
+            ask(question: result.text, prompt: Prompts.question(context: ctx, question: result.text),
+                recognition: result.seconds, replaceCurrent: false)
         } else {
-            ask(question: "Я: " + text, prompt: Prompts.mine(context: ctx, text: text), replaceCurrent: false)
+            ask(question: "Я: " + result.text, prompt: Prompts.mine(context: ctx, text: result.text),
+                recognition: result.seconds, replaceCurrent: false)
         }
     }
 
-    private func handleManualPartial(_ speaker: Speaker, _ audio: [Float]) async {
-        guard recording.contains(speaker) else { return }
-        let text = await transcriber.transcribePartialIfIdle(
-            audio, language: settings.speechLanguage.whisperCode, vocabulary: settings.vocabulary)
-        if let text, !text.isEmpty, recording.contains(speaker) {
-            partial[speaker] = text
+    // MARK: - Piece-by-piece recognition (both modes)
+
+    /// Recognises one finished piece of a phrase in the background. Pieces are chained:
+    /// each starts after the previous one and gets its text as context.
+    private func addPiece(_ u: Utterance, _ audio: [Float], urgent: Bool) {
+        let previous = u.pieces.last
+        let tr = transcriber
+        let options = speechOptions
+        let task = Task<Recognized, Never> {
+            let before = await previous?.value
+            var opts = options
+            // «Авто»: one phrase stays in one language — the one its first piece was recognised in.
+            if opts.language == nil, let lang = before?.language { opts.language = lang }
+            return await tr.recognize(audio, options: opts, context: before?.text ?? "", urgent: urgent)
         }
+        u.pieces.append(task)
+        u.partial = ""
+        Task { [weak self] in
+            let text = await task.value.text
+            guard let self else { return }
+            u.finished += 1
+            if !text.isEmpty { u.done.append(text) }
+            if self.utterances[u.speaker] === u { self.partial[u.speaker] = u.caption.nilIfEmpty }
+        }
+    }
+
+    /// The phrase ended: recognise the tail and join all pieces.
+    private func finish(_ u: Utterance, tail: [Float], hasVoice: Bool, urgent: Bool) async -> (text: String, seconds: Double) {
+        let started = Date()
+        if hasVoice && !tail.isEmpty { addPiece(u, tail, urgent: urgent) }
+        if utterances[u.speaker] === u { utterances[u.speaker] = nil }
+        var texts: [String] = []
+        for piece in u.pieces { texts.append(await piece.value.text) }
+        let text = texts.filter { !$0.isEmpty }.joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (Transcriber.collapseRepeats(text), Date().timeIntervalSince(started))
+    }
+
+    private func speechStarted(_ speaker: Speaker, id: Int) {
+        speaking.insert(speaker)
+        utterances[speaker] = Utterance(id: id, speaker: speaker)
+    }
+
+    private func handlePiece(_ speaker: Speaker, id: Int, _ audio: [Float]) {
+        guard let u = utterances[speaker], u.id == id else { return }
+        addPiece(u, audio, urgent: speaker == .interviewer || settings.listenMode == .manual)
+    }
+
+    private func handlePartial(_ speaker: Speaker, id: Int, _ audio: [Float]) async {
+        guard let u = utterances[speaker], u.id == id else { return }
+        let text = await transcriber.transcribePartialIfIdle(audio, options: speechOptions, context: u.done.last ?? "")
+        guard let text, !text.isEmpty, utterances[speaker] === u, u.pieces.count == u.finished else { return }
+        u.partial = text
+        partial[speaker] = u.caption
+    }
+
+    private func discard(_ speaker: Speaker, id: Int) {
+        guard let u = utterances[speaker], u.id == id else { return }
+        utterances[speaker] = nil
+        speaking.remove(speaker)
+        partial[speaker] = nil
     }
 
     // MARK: - Speech events (mode «Авто»)
 
-    private func speechStarted(_ speaker: Speaker) {
-        speaking.insert(speaker)
-    }
-
-    private func handlePartial(_ speaker: Speaker, _ audio: [Float]) async {
-        guard speaking.contains(speaker) else { return }
-        let text = await transcriber.transcribePartialIfIdle(
-            audio, language: settings.speechLanguage.whisperCode, vocabulary: settings.vocabulary)
-        if let text, !text.isEmpty, speaking.contains(speaker) {
-            partial[speaker] = text
-        }
-    }
-
-    private func handleFinal(_ speaker: Speaker, _ audio: [Float]) async {
+    private func handleFinal(_ speaker: Speaker, id: Int, tail: [Float], hasVoice: Bool) async {
         speaking.remove(speaker)
-        let started = Date()
-        let text = await transcriber.transcribe(
-            audio, language: settings.speechLanguage.whisperCode, vocabulary: settings.vocabulary,
-            urgent: speaker == .interviewer)
-        let seconds = Date().timeIntervalSince(started)
-        partial[speaker] = nil
-        guard !text.isEmpty, isListening, settings.listenMode == .auto else { return }
+        guard let u = utterances[speaker], u.id == id else { return }
+        if speaker == .interviewer { recognizing.insert(speaker) }
+        let result = await finish(u, tail: tail, hasVoice: hasVoice, urgent: speaker == .interviewer)
+        recognizing.remove(speaker)
+        partial[speaker] = utterances[speaker]?.caption.nilIfEmpty
+        guard !result.text.isEmpty, isListening, settings.listenMode == .auto else { return }
         if speaker == .me {
             // The microphone heard the interviewer from the speakers → not my words.
-            if isEcho(text) { return }
+            if isEcho(result.text) { return }
             lastMeSpeechAt = Date()
         }
-        entries.append(TranscriptEntry(speaker: speaker, text: text, date: Date(), recognitionSeconds: seconds))
-        if speaker == .interviewer { interviewerSaid(text) }
+        entries.append(TranscriptEntry(speaker: speaker, text: result.text, date: Date(), recognitionSeconds: result.seconds))
+        if entries.count > 300 { entries.removeFirst(entries.count - 300) }
+        if speaker == .interviewer { interviewerSaid(result.text, recognition: result.seconds) }
     }
 
     private static func words(_ s: String) -> Set<String> {
@@ -471,7 +604,7 @@ final class AppState: ObservableObject {
         return overlap >= 0.6
     }
 
-    private func interviewerSaid(_ text: String) {
+    private func interviewerSaid(_ text: String, recognition: Double) {
         let now = Date()
         // Same question only if the interviewer paused briefly (< 4 s) mid-sentence and I haven't spoken since.
         let continuing = currentQuestion != nil
@@ -489,13 +622,13 @@ final class AppState: ObservableObject {
         forceAnswerOnNextFinal = false
         if settings.autoAnswer || force, let q = currentQuestion {
             ask(question: q, prompt: Prompts.question(context: context(before: questionStartedAt), question: q),
-                replaceCurrent: continuing)
+                recognition: recognition, replaceCurrent: continuing)
         }
     }
 
     // MARK: - Actions
 
-    /// Hotkey «ответить сейчас»: closes the current utterance immediately, or re-answers the last question.
+    /// Hotkey «ответить сейчас»: closes the current phrase immediately, or re-answers the last question.
     func answerNow() {
         if settings.listenMode == .manual {
             toggleRecord(.interviewer)
@@ -521,17 +654,21 @@ final class AppState: ObservableObject {
         ask(question: q, prompt: Prompts.question(context: context(before: Date()), question: q), replaceCurrent: false)
     }
 
+    func testConnection() {
+        ask(question: "Проверка связи", prompt: "Тест связи: ответь одним словом «работает».", replaceCurrent: false)
+    }
+
     func solveScreenshot() {
         Task {
             do {
-                status = "Скриншот…"
+                note = "Скриншот…"
                 let jpeg = try await ScreenGrabber.captureJPEG()
-                status = isListening ? "Слушаю…" : "Готов"
+                note = nil
                 ask(question: "Задача с экрана", prompt: Prompts.screenshot(context: context(before: Date()),
                                                      customFormat: !settings.answerFormat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
                     image: jpeg, replaceCurrent: false)
             } catch {
-                status = isListening ? "Слушаю…" : "Готов"
+                note = nil
                 showError("Скриншот не удался — нужно разрешение «Запись экрана и системного звука». \(error.localizedDescription)",
                           permission: true)
             }
@@ -552,7 +689,7 @@ final class AppState: ObservableObject {
         currentAnswerID = nil
     }
 
-    // MARK: - Claude
+    // MARK: - Model
 
     private func context(before date: Date) -> String {
         let recent = entries.filter { $0.date < date }.suffix(24)
@@ -575,8 +712,11 @@ final class AppState: ObservableObject {
         return settings.backend == .api ? apiClient : cliClient
     }
 
+    /// Warms whatever the current connection needs: the prompt cache (API), a waiting CLI
+    /// process (subscription) or the TLS connection (other providers).
     func prewarmLLM() {
         let req = makeRequest(text: "ping")
+        lastWarmKey = warmKey
         switch settings.backend {
         case .api:
             guard !settings.apiKey.isEmpty else { return }
@@ -586,8 +726,18 @@ final class AppState: ObservableObject {
             let client = cliClient
             Task.detached(priority: .utility) { client.prewarm(req) }
         default:
-            break   // other providers have no prompt cache to warm
+            guard let p = settings.backend.provider else { return }
+            let client = OpenAICompatClient(provider: p, key: settings.providerKey, baseURL: settings.providerURL)
+            Task.detached(priority: .utility) { await client.prewarm() }
         }
+    }
+
+    private var warmKey: String {
+        "\(settings.backend.rawValue)|\(settings.activeModel)|\(settings.effort)|\(settings.fastMode)|\(Prompts.system(settings).hashValue)"
+    }
+
+    private func prewarmIfChanged() {
+        if warmKey != lastWarmKey { prewarmLLM() }
     }
 
     func toggleExpanded(_ id: UUID) {
@@ -601,11 +751,12 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func ask(question: String, prompt: String, image: Data? = nil, replaceCurrent: Bool) {
+    private func ask(question: String, prompt: String, image: Data? = nil, recognition: Double? = nil, replaceCurrent: Bool) {
         answerTask?.cancel()
         markStopped()
 
-        let item = AnswerItem(question: question)
+        var item = AnswerItem(question: question)
+        item.recognitionSeconds = recognition
         // Older answers fold into one line so the new one gets the whole window.
         for i in answers.indices { answers[i].expanded = false }
         if replaceCurrent, let id = currentAnswerID, let idx = answers.firstIndex(where: { $0.id == id }) {
@@ -654,8 +805,7 @@ final class AppState: ObservableObject {
 
     private func saveSession() {
         guard !entries.isEmpty || !answers.isEmpty else { return }
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("RedCast/Sessions", isDirectory: true)
+        let dir = Self.sessionsFolder
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd_HH-mm"
@@ -672,6 +822,127 @@ final class AppState: ObservableObject {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("RedCast/Sessions", isDirectory: true)
     }
+
+    // MARK: - Demo content (`--snapshot`)
+
+    enum DemoKind { case empty, recording, answers, auto }
+
+    func prepareDemo(_ kind: DemoKind) {
+        modelReady = true
+        modelProgress = nil
+        modelStatus = "Распознавание готово"
+        errorMessage = nil
+        note = nil
+        isListening = false
+        recording = []
+        recordingSince = [:]
+        speaking = []
+        partial = [:]
+        recognizing = []
+        entries = []
+        answers = []
+        currentAnswerID = nil
+        func answer(_ q: String, _ t: String, expanded: Bool, streaming: Bool = false) -> AnswerItem {
+            var a = AnswerItem(question: q)
+            a.text = t
+            a.isStreaming = streaming
+            a.expanded = expanded
+            a.recognitionSeconds = 0.6
+            a.firstTokenSeconds = streaming && t.isEmpty ? nil : 1.1
+            return a
+        }
+        let old1 = answer("Добрый день! Расскажите немного о себе.",
+                          "**Я бэкенд-разработчик, пять лет в финтехе: платежи и высоконагруженные API.**\n- Последние два года — тимлид команды из 4 человек.", expanded: false)
+        let old2 = answer("Почему уходите с текущего места?",
+                          "**Хочу расти в архитектуре распределённых систем — в текущей компании задачи стали однотипными.**", expanded: false)
+        let main = answer("Чем процесс отличается от потока?", """
+        **Процесс — изолированная программа со своей памятью, поток — единица выполнения внутри процесса.**
+        - Потоки одного процесса делят память, поэтому переключаться между ними дешевле.
+        - Процессы изолированы: падение одного не роняет остальные.
+        - Общение: у потоков — общая память и `mutex`, у процессов — IPC (сокеты, пайпы).
+        - Пример: воркеры я запускал горутинами, а обработку видео — отдельными процессами.
+        """, expanded: true)
+        let lines: [(Speaker, String, Double)] = [
+            (.interviewer, "Добрый день! Расскажите немного о себе.", 0.6),
+            (.me, "Да, конечно. Я бэкенд-разработчик, пять лет в финтехе.", 0.5),
+            (.interviewer, "Чем процесс отличается от потока?", 0.6),
+        ]
+        entries = lines.map { TranscriptEntry(speaker: $0.0, text: $0.1, date: Date(), recognitionSeconds: $0.2) }
+        switch kind {
+        case .empty:
+            entries = []
+            settings.listenMode = .manual
+        case .recording:
+            settings.listenMode = .manual
+            answers = [old1, old2]
+            recording = [.interviewer]
+            recordingSince = [.interviewer: Date().addingTimeInterval(-7)]
+            partial = [.interviewer: "Как бы вы спроектировали систему уведомлений, если пользователей"]
+        case .answers:
+            settings.listenMode = .manual
+            answers = [old1, old2, main]
+            currentAnswerID = main.id
+        case .auto:
+            settings.listenMode = .auto
+            isListening = true
+            speaking = [.interviewer]
+            answers = [old1, answer("Как бы вы спроектировали систему уведомлений?", "", expanded: true, streaming: true)]
+            currentAnswerID = answers.last?.id
+            partial = [.interviewer: "И сколько сообщений в секунду она должна"]
+        }
+    }
+
+    // MARK: - End-to-end replay (`--replay <file.wav>`)
+
+    /// Plays a recorded question through the «По кнопкам» pipeline (pieces while «recording»,
+    /// tail after the second press) and the configured model, and prints the timings.
+    func replay(file: URL) async -> Int32 {
+        guard let samples = try? AudioProcessor.loadAudioAsFloatArray(fromPath: file.path) else { return 1 }
+        await loadSpeechModel()
+        guard modelReady else { print("model failed"); return 1 }
+        print("backend: \(settings.backend.rawValue) · model: \(settings.activeModel) · effort: \(settings.effort)")
+        prewarmLLM()
+        try? await Task.sleep(nanoseconds: 5_000_000_000)   // the CLI / connection is warm, like during a call
+        settings.listenMode = .manual
+        isListening = true
+        manualID += 1
+        let id = manualID
+        utterances[.interviewer] = Utterance(id: id, speaker: .interviewer)
+        let rec = systemRecorder
+        systemQueue.sync { rec.start(id: id) }
+        recording.insert(.interviewer)
+        let started = Date()
+        var offset = 0
+        while offset < samples.count {
+            let chunk = Array(samples[offset..<min(samples.count, offset + 1_600)])
+            offset += chunk.count
+            systemQueue.async { rec.append(chunk) }
+            let wait = started.addingTimeInterval(Double(offset) / 16_000).timeIntervalSinceNow
+            if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1e9)) }
+        }
+        let pressed = Date()
+        await finishRecording(.interviewer)
+        guard let item = answers.last else { print("no answer: \(errorMessage ?? "")"); return 1 }
+        print(String(format: "распознано за %.2f с: «%@»", item.recognitionSeconds ?? -1, entries.last?.text ?? ""))
+        while answers.last?.isStreaming == true { try? await Task.sleep(nanoseconds: 50_000_000) }
+        let a = answers.last!
+        print(String(format: "первые слова ответа: %.2f с после распознавания, %.2f с после второго нажатия",
+                     a.firstTokenSeconds ?? -1, (a.firstTokenSeconds ?? 0) + (a.recognitionSeconds ?? 0)))
+        print("ответ: \(a.error ?? a.text)")
+        _ = pressed
+        cliClient.shutdown()
+        return a.error == nil ? 0 : 1
+    }
+
+    // MARK: - Benchmark
+
+    func runBenchmark(folder: URL) async -> Int32 {
+        await transcriber.benchmark(folder: folder, model: settings.whisperModel, vocabulary: settings.vocabulary)
+    }
+}
+
+extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 // MARK: - Screenshot

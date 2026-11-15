@@ -4,7 +4,7 @@ import json, os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-ROLE = """Ты — незаметный суфлёр кандидата на живом собеседовании. Тебе приходит автоматическая расшифровка речи (русский, украинский, иногда английский). В ней бывают ошибки распознавания — восстанавливай смысл по контексту и по терминологии вакансии, не переспрашивай.
+ROLE = """Ты — незаметный суфлёр кандидата на живом собеседовании. Тебе приходит автоматическая расшифровка речи (русский, украинский, иногда английский). В ней бывают ошибки распознавания (термины часто записаны кириллицей на слух: «куборнетис» — Kubernetes, «рест» — REST) — восстанавливай смысл по контексту, по терминологии вакансии и по списку терминов, не переспрашивай.
 
 Отвечай ОТ ПЕРВОГО ЛИЦА, как кандидат, так, чтобы ответ можно было сразу произнести вслух. Отвечай только на последнюю реплику интервьюера; более ранние вопросы уже обсуждены. Опирайся на резюме кандидата и не выдумывай компаний и цифр, которых там нет (если опыта нет — дай общий профессиональный ответ). Без вступлений, без повторения вопроса, без «Отличный вопрос», без дисклеймеров. Если реплика интервьюера не вопрос и не задача (приветствие, рассказ о компании, small talk) — ответь одной короткой уместной репликой кандидата."""
 
@@ -25,6 +25,8 @@ PRESETS = [
     ("detailed", "Подробно", "Развёрнутый ответ: определение, как это работает, пример из практики, подводные камни. Код — если уместен, коротким фрагментом."),
     ("standard", "Стандартный (тезис + пункты + код)", ""),
 ]
+
+TERMS_HEADER = "Термины, которые могут прозвучать в разговоре:"
 
 SCREENSHOT_DEFAULT = "На скриншоте экран кандидата во время собеседования (задача, код, вопрос или тест). Найди задание и реши его: кратко подход и сложность, затем полное рабочее решение, затем крайние случаи. Если это вопрос с вариантами ответа — укажи правильный вариант и почему."
 SCREENSHOT_CUSTOM = "На скриншоте экран кандидата во время собеседования (задача, код, вопрос или тест). Найди задание и реши его. Оформи ответ строго в формате, заданном кандидатом. Если это вопрос с вариантами ответа — укажи правильный вариант."
@@ -52,6 +54,7 @@ enum Prompts {{
     static let role = {sw(ROLE)}
     static let defaultFormat = {sw(DEFAULT_FORMAT)}
     static let customHeader = {sw(CUSTOM_HEADER)}
+    static let termsHeader = {sw(TERMS_HEADER)}
 
     static func formatBlock(_ s: AppSettings) -> String {{
         let custom = s.answerFormat.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -66,6 +69,8 @@ enum Prompts {{
         if !job.isEmpty {{ parts.append("<vacancy>\\n\\(job)\\n</vacancy>") }}
         let extra = s.extraInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
         if !extra.isEmpty {{ parts.append("Дополнительно о кандидате:\\n\\(extra)") }}
+        let terms = s.vocabulary.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !terms.isEmpty {{ parts.append(termsHeader + " " + terms) }}
         return parts.joined(separator: "\\n\\n")
     }}
 
@@ -114,6 +119,7 @@ public static class Prompts
     public const string Role = {cs(ROLE)};
     public const string DefaultFormat = {cs(DEFAULT_FORMAT)};
     public const string CustomHeader = {cs(CUSTOM_HEADER)};
+    public const string TermsHeader = {cs(TERMS_HEADER)};
 
     public static string FormatBlock(AppSettings s)
     {{
@@ -127,6 +133,7 @@ public static class Prompts
         if (!string.IsNullOrWhiteSpace(s.Resume)) parts.Add("<resume>\\n" + s.Resume.Trim() + "\\n</resume>");
         if (!string.IsNullOrWhiteSpace(s.JobDescription)) parts.Add("<vacancy>\\n" + s.JobDescription.Trim() + "\\n</vacancy>");
         if (!string.IsNullOrWhiteSpace(s.ExtraInstructions)) parts.Add("Дополнительно о кандидате:\\n" + s.ExtraInstructions.Trim());
+        if (!string.IsNullOrWhiteSpace(s.Vocabulary)) parts.Add(TermsHeader + " " + s.Vocabulary.Trim());
         return string.Join("\\n\\n", parts);
     }}
 

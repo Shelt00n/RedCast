@@ -31,9 +31,9 @@ public sealed class TextToVis : IValueConverter
 
 public sealed class SpeakerBrush : IValueConverter
 {
-    // Neutral roles, not colors: the interviewer reads as primary text, «Я» as muted.
-    static readonly Brush Interviewer = new SolidColorBrush(Color.FromRgb(0xED, 0xED, 0xED));
-    static readonly Brush Me = new SolidColorBrush(Color.FromRgb(0x85, 0x85, 0x8B));
+    // The interviewer is tagged in the on-air red, «Я» in the muted role.
+    static readonly Brush Interviewer = new SolidColorBrush(Color.FromRgb(0xEE, 0x2B, 0x36));
+    static readonly Brush Me = new SolidColorBrush(Color.FromRgb(0x76, 0x76, 0x7F));
     public object Convert(object value, Type t, object p, CultureInfo c) => value is true ? Interviewer : Me;
     public object ConvertBack(object value, Type t, object p, CultureInfo c) => Binding.DoNothing;
 }
@@ -47,11 +47,12 @@ public static class Markdown
     public static string GetText(DependencyObject d) => (string)d.GetValue(TextProperty);
     public static void SetText(DependencyObject d, string v) => d.SetValue(TextProperty, v);
 
-    static readonly Brush CodeBg = new SolidColorBrush(Color.FromRgb(0x0F, 0x0F, 0x10));
-    static readonly Brush InlineCodeBg = new SolidColorBrush(Color.FromRgb(0x24, 0x24, 0x26));
-    static readonly Brush CodeLine = new SolidColorBrush(Color.FromArgb(0x14, 0xED, 0xED, 0xED));
-    static readonly Brush CodeFg = new SolidColorBrush(Color.FromRgb(0xED, 0xED, 0xED));
-    static readonly Brush BulletFg = new SolidColorBrush(Color.FromRgb(0x85, 0x85, 0x8B));
+    static readonly Brush CodeBg = new SolidColorBrush(Color.FromRgb(0x0D, 0x0D, 0x0F));
+    static readonly Brush InlineCodeBg = new SolidColorBrush(Color.FromRgb(0x26, 0x26, 0x2B));
+    static readonly Brush CodeLine = new SolidColorBrush(Color.FromArgb(0x12, 0xFF, 0xFF, 0xFF));
+    static readonly Brush CodeFg = new SolidColorBrush(Color.FromRgb(0xF2, 0xF2, 0xF4));
+    static readonly Brush BulletFg = new SolidColorBrush(Color.FromArgb(0xD9, 0xEE, 0x2B, 0x36));
+    static readonly Brush NumberFg = new SolidColorBrush(Color.FromRgb(0x76, 0x76, 0x7F));
     static readonly FontFamily Mono = new("Cascadia Mono, Consolas");
 
     static void OnTextChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -107,10 +108,15 @@ public static class Markdown
                     var t = line.TrimStart();
                     bool heading = t.StartsWith("#");
                     if (heading) t = t.TrimStart('#').Trim();
-                    else if (t.StartsWith("- ") || t.StartsWith("* "))
+                    else if (t.StartsWith("- ") || t.StartsWith("* ") || t.StartsWith("• "))
                     {
-                        block.Inlines.Add(new Run("•  ") { Foreground = BulletFg });
+                        block.Inlines.Add(new Run("•  ") { Foreground = BulletFg, FontWeight = FontWeights.Bold });
                         t = t[2..];
+                    }
+                    else if (Numbered.Match(t) is { Success: true } m)
+                    {
+                        block.Inlines.Add(new Run(m.Value) { Foreground = NumberFg, FontWeight = FontWeights.Medium });
+                        t = t[m.Length..];
                     }
                     else t = line;
                     AddInline(block.Inlines, t, heading);
@@ -121,6 +127,8 @@ public static class Markdown
         }
         return panel;
     }
+
+    static readonly Regex Numbered = new(@"^\d{1,2}[.)]\s", RegexOptions.Compiled);
 
     static readonly Regex Token = new(@"(\*\*[^*]+\*\*|`[^`]+`)", RegexOptions.Compiled);
 

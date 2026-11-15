@@ -4,26 +4,30 @@
              xmlns:ui="clr-namespace:RedCast.UI"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
-        <!-- ===== Tokens: graphite ramp, one accent (the on-air tally red of the logo) ===== -->
-        <SolidColorBrush x:Key="Bg" Color="#F5141415"/>
-        <SolidColorBrush x:Key="BgDeep" Color="#FF0F0F10"/>
-        <SolidColorBrush x:Key="Surface" Color="#FF1B1B1D"/>
-        <SolidColorBrush x:Key="Raised" Color="#FF242426"/>
-        <SolidColorBrush x:Key="Hover" Color="#FF2C2C2F"/>
-        <SolidColorBrush x:Key="Popup" Color="#FF1F1F21"/>
-        <SolidColorBrush x:Key="Line" Color="#14EDEDED"/>
-        <SolidColorBrush x:Key="LineStrong" Color="#26EDEDED"/>
-        <SolidColorBrush x:Key="Fg" Color="#FFEDEDED"/>
-        <SolidColorBrush x:Key="Fg2" Color="#FFA1A1A6"/>
-        <SolidColorBrush x:Key="Fg3" Color="#FF85858B"/>
-        <SolidColorBrush x:Key="Idle" Color="#FF5C5C61"/>
-        <SolidColorBrush x:Key="OnFg" Color="#FF141415"/>
-        <SolidColorBrush x:Key="Accent" Color="#FFE3141F"/>
-        <SolidColorBrush x:Key="AccentSoft" Color="#59E3141F"/>
-        <SolidColorBrush x:Key="Positive" Color="#FF4CC38A"/>
-        <SolidColorBrush x:Key="Warning" Color="#FFE8B04B"/>
-        <SolidColorBrush x:Key="WarningLine" Color="#4DE8B04B"/>
-        <SolidColorBrush x:Key="Negative" Color="#FFF07075"/>
+        <!-- ===== Tokens: «broadcast console» — smoked graphite + one on-air tally red. Same values as macos/Theme.swift ===== -->
+        <SolidColorBrush x:Key="Glass" Color="#F2121214"/>
+        <SolidColorBrush x:Key="Bg" Color="#F2121214"/>
+        <SolidColorBrush x:Key="BgDeep" Color="#FF0D0D0F"/>
+        <SolidColorBrush x:Key="Surface" Color="#FF1C1C20"/>
+        <SolidColorBrush x:Key="SurfaceDim" Color="#B31C1C20"/>
+        <SolidColorBrush x:Key="Raised" Color="#FF26262B"/>
+        <SolidColorBrush x:Key="Hover" Color="#FF303036"/>
+        <SolidColorBrush x:Key="Popup" Color="#FF1F1F23"/>
+        <SolidColorBrush x:Key="Line" Color="#12FFFFFF"/>
+        <SolidColorBrush x:Key="LineStrong" Color="#21FFFFFF"/>
+        <SolidColorBrush x:Key="Fg" Color="#FFF2F2F4"/>
+        <SolidColorBrush x:Key="Fg2" Color="#FFA9A9B2"/>
+        <SolidColorBrush x:Key="Fg3" Color="#FF76767F"/>
+        <SolidColorBrush x:Key="Idle" Color="#FF55555C"/>
+        <SolidColorBrush x:Key="OnFg" Color="#FF121214"/>
+        <SolidColorBrush x:Key="Accent" Color="#FFEE2B36"/>
+        <SolidColorBrush x:Key="AccentSoft" Color="#29EE2B36"/>
+        <SolidColorBrush x:Key="AccentHover" Color="#3DEE2B36"/>
+        <SolidColorBrush x:Key="AccentLine" Color="#8CEE2B36"/>
+        <SolidColorBrush x:Key="Positive" Color="#FF3DD68C"/>
+        <SolidColorBrush x:Key="Warning" Color="#FFF5B54A"/>
+        <SolidColorBrush x:Key="WarningLine" Color="#59F5B54A"/>
+        <SolidColorBrush x:Key="Negative" Color="#FFFF6B6B"/>
 
         <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
         <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
@@ -75,7 +79,7 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="B" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="9"
                                 Padding="{TemplateBinding Padding}" RenderTransformOrigin="0.5,0.5">
                             <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                               VerticalAlignment="Center"/>
@@ -90,7 +94,8 @@
                                 <Setter TargetName="B" Property="BorderBrush" Value="{StaticResource Fg2}"/>
                             </Trigger>
                             <Trigger Property="Tag" Value="live">
-                                <Setter TargetName="B" Property="BorderBrush" Value="{StaticResource AccentSoft}"/>
+                                <Setter TargetName="B" Property="BorderBrush" Value="{StaticResource AccentLine}"/>
+                                <Setter TargetName="B" Property="Background" Value="{StaticResource AccentSoft}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="B" Property="Opacity" Value="0.4"/>
@@ -103,6 +108,18 @@
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="{StaticResource Hover}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- On air (recording / listening): red tint + red hairline -->
+        <Style x:Key="LiveBtn" TargetType="Button" BasedOn="{StaticResource Btn}">
+            <Setter Property="Background" Value="{StaticResource AccentSoft}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentLine}"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource AccentHover}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -133,20 +150,50 @@
             </Style.Triggers>
         </Style>
 
-        <!-- Icon button: 32×32 ghost with a Fluent glyph as content -->
+        <!-- Icon button: 30×30 ghost with a Fluent glyph as content -->
         <Style x:Key="IconBtn" TargetType="Button" BasedOn="{StaticResource GhostBtn}">
             <Setter Property="Padding" Value="0"/>
-            <Setter Property="Width" Value="32"/>
-            <Setter Property="Height" Value="32"/>
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="MinHeight" Value="30"/>
             <Setter Property="FontFamily" Value="{StaticResource IconFont}"/>
             <Setter Property="FontSize" Value="14"/>
         </Style>
 
+        <!-- Option row (model choice etc.): left aligned, Tag="on" = selected -->
+        <Style x:Key="OptionBtn" TargetType="Button" BasedOn="{StaticResource GhostBtn}">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="8,7"/>
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Style.Triggers>
+                <Trigger Property="Tag" Value="on">
+                    <Setter Property="Background" Value="{StaticResource Raised}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Settings card and its caption -->
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Surface}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="Margin" Value="0,0,0,16"/>
+        </Style>
+        <Style x:Key="Caption" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource Fg3}"/>
+            <Setter Property="Margin" Value="4,0,0,6"/>
+        </Style>
+
         <!-- Segment inside a segmented control (Tag="on" = selected) -->
         <Style x:Key="SegBtn" TargetType="Button" BasedOn="{StaticResource GhostBtn}">
-            <Setter Property="MinHeight" Value="28"/>
-            <Setter Property="Height" Value="28"/>
-            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="Height" Value="26"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="FontSize" Value="12"/>
             <Style.Triggers>
                 <Trigger Property="Tag" Value="on">
                     <Setter Property="Background" Value="{StaticResource Hover}"/>
@@ -159,8 +206,8 @@
             <Setter Property="Background" Value="{StaticResource BgDeep}"/>
             <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="10"/>
-            <Setter Property="Padding" Value="1"/>
+            <Setter Property="CornerRadius" Value="9"/>
+            <Setter Property="Padding" Value="2"/>
         </Style>
 
         <!-- Keycap for shortcuts -->
@@ -366,8 +413,8 @@
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Box" Property="Background" Value="{StaticResource Fg}"/>
-                                <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Fg}"/>
+                                <Setter TargetName="Box" Property="Background" Value="{StaticResource Positive}"/>
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Positive}"/>
                                 <Setter TargetName="Mark" Property="Visibility" Value="Visible"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">

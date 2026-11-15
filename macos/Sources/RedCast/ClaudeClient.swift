@@ -158,8 +158,12 @@ final class AnthropicAPIClient: LLMClient {
 
 // MARK: - Claude Code CLI (uses the user's Claude Pro / Max subscription login)
 
-/// Runs `claude -p` in headless mode. A process is spawned in advance and waits for its
-/// prompt on stdin, so Node/CLI start-up time is not on the critical path.
+/// Runs `claude -p` in headless mode. A process is spawned in advance and waits for the
+/// question on stdin, so the CLI start-up (1–2 s) is not on the critical path.
+///
+/// The process reads stdin as stream-json: with plain text input the CLI gives up after 3 s
+/// without data («no stdin data received in 3s») and exits, so a pre-spawned process was always
+/// dead by the time the question came and every answer paid the full cold start.
 final class ClaudeCodeClient: LLMClient, @unchecked Sendable {
     private struct Spawned {
         let process: Process
@@ -189,8 +193,11 @@ final class ClaudeCodeClient: LLMClient, @unchecked Sendable {
     // MARK: Executable & environment
 
     private static var cachedLoginPath: String?
+    private static let pathLock = NSLock()
 
     private static func loginShellPath() -> String {
+        pathLock.lock()
+        defer { pathLock.unlock() }
         if let p = cachedLoginPath { return p }
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -224,6 +231,9 @@ final class ClaudeCodeClient: LLMClient, @unchecked Sendable {
         throw LLMError.cli("команда `claude` не найдена. Установите Claude Code и выполните `claude` → /login, либо укажите путь в настройках.")
     }
 
+    /// Is Claude Code installed (for the readiness checklist)?
+    var isInstalled: Bool { (try? executable()) != nil }
+
     private func environment() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = Self.loginShellPath()
@@ -233,10 +243,11 @@ final class ClaudeCodeClient: LLMClient, @unchecked Sendable {
         return env
     }
 
-    private func arguments(_ r: LLMRequest, streamJSONInput: Bool) -> [String] {
-        var args = [
+    private func arguments(_ r: LLMRequest) -> [String] {
+        [
             "-p",
             "--tools", "",
+            "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--verbose",
             "--include-partial-messages",
@@ -246,14 +257,12 @@ final class ClaudeCodeClient: LLMClient, @unchecked Sendable {
             "--effort", r.effort,
             "--system-prompt", r.system,
         ]
-        if streamJSONInput { args += ["--input-format", "stream-json"] }
-        return args
     }
 
-    private func spawn(_ r: LLMRequest, streamJSONInput: Bool) throws -> Spawned {
+    private func spawn(_ r: LLMRequest) throws -> Spawned {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: try executable())
-        p.arguments = arguments(r, streamJSONInput: streamJSONInput)
+        p.arguments = arguments(r)
         p.environment = environment()
         p.currentDirectoryURL = workDir
         let i = Pipe(), o = Pipe(), e = Pipe()
@@ -268,24 +277,31 @@ final class ClaudeCodeClient: LLMClient, @unchecked Sendable {
         "\(r.model)|\(r.effort)|\(r.system.hashValue)"
     }
 
-    /// Spawn a process ahead of time for the next question.
+    /// Spawn a process ahead of time for the next question (no-op if a matching one is waiting).
     func prewarm(_ r: LLMRequest) {
         lock.lock()
         defer { lock.unlock() }
         if let w = warm, w.key == Self.key(r), w.process.isRunning { return }
         warm?.process.terminate()
-        warm = try? spawn(r, streamJSONInput: false)
+        warm = try? spawn(r)
+    }
+
+    /// Stop the waiting process (app quits).
+    func shutdown() {
+        lock.lock()
+        warm?.process.terminate()
+        warm = nil
+        lock.unlock()
     }
 
     private func takeProcess(_ r: LLMRequest) throws -> Spawned {
-        if r.imageJPEG != nil { return try spawn(r, streamJSONInput: true) }
         lock.lock()
         let candidate = warm
         warm = nil
         lock.unlock()
         if let c = candidate, c.key == Self.key(r), c.process.isRunning { return c }
         candidate?.process.terminate()
-        return try spawn(r, streamJSONInput: false)
+        return try spawn(r)
     }
 
     func stream(_ r: LLMRequest, onText: @escaping @MainActor (String) -> Void) async throws {
@@ -293,16 +309,16 @@ final class ClaudeCodeClient: LLMClient, @unchecked Sendable {
         // Immediately prepare the next one.
         DispatchQueue.global(qos: .utility).async { [weak self] in self?.prewarm(r) }
 
-        // Send the prompt.
-        let input: Data
-        if r.imageJPEG != nil {
-            let msg: [String: Any] = ["type": "user", "message": ["role": "user", "content": r.contentBlocks]]
-            input = try JSONSerialization.data(withJSONObject: msg) + Data("\n".utf8)
-        } else {
-            input = Data(r.text.utf8)
+        // Send the question as one stream-json user message, then close stdin: the CLI answers and exits.
+        let msg: [String: Any] = ["type": "user", "message": ["role": "user", "content": r.contentBlocks]]
+        let input = try JSONSerialization.data(withJSONObject: msg) + Data("\n".utf8)
+        do {
+            try proc.stdin.fileHandleForWriting.write(contentsOf: input)
+            try proc.stdin.fileHandleForWriting.close()
+        } catch {
+            proc.process.terminate()
+            throw LLMError.cli("процесс Claude Code завершился раньше времени. Проверьте вход: claude → /login.")
         }
-        try proc.stdin.fileHandleForWriting.write(contentsOf: input)
-        try proc.stdin.fileHandleForWriting.close()
 
         try await withTaskCancellationHandler {
             var streamed = false

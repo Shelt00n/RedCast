@@ -119,6 +119,19 @@ public sealed class OpenAICompatClient : ILLMClient
         return body;
     }
 
+    /// <summary>Opens the TLS connection before the first question (GET /models costs no tokens).</summary>
+    public async Task PrewarmAsync()
+    {
+        if (_p.NeedsKey && _key.Length == 0) return;
+        try
+        {
+            using var req = Build(HttpMethod.Get, "/models", null);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using var _ = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+        }
+        catch { }
+    }
+
     public async Task StreamAsync(LLMRequest r, Action<string> onText, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(r.Model))

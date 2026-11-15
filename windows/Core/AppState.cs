@@ -24,8 +24,8 @@ public sealed class TranscriptEntry
     public DateTime Date { get; }
     /// <summary>From the end of the phrase to ready text, waiting in the queue included.</summary>
     public double? RecognitionSeconds { get; }
-    public string RecognitionLabel => RecognitionSeconds is double s ? $"  · {s:0.0} с" : "";
-    public string Label => Speaker == Speaker.Interviewer ? "Интервьюер: " : "Я: ";
+    public string RecognitionLabel => RecognitionSeconds is double s ? $"  {s:0.0} с" : "";
+    public string Label => Speaker == Speaker.Interviewer ? "Интервьюер  " : "Я  ";
     public bool IsInterviewer => Speaker == Speaker.Interviewer;
 }
 
@@ -37,23 +37,44 @@ public sealed class AnswerItem : Observable
     public string Question { get; }
 
     string _text = "";
-    public string Text { get => _text; set { if (Set(ref _text, value)) { OnChanged(nameof(ShowSpinner)); OnChanged(nameof(Preview)); } } }
+    public string Text { get => _text; set { if (Set(ref _text, value)) { OnChanged(nameof(ShowSpinner)); OnChanged(nameof(Preview)); OnChanged(nameof(CanCopy)); } } }
 
     bool _streaming = true;
-    public bool IsStreaming { get => _streaming; set { if (Set(ref _streaming, value)) OnChanged(nameof(ShowSpinner)); } }
+    public bool IsStreaming { get => _streaming; set { if (Set(ref _streaming, value)) { OnChanged(nameof(ShowSpinner)); OnChanged(nameof(CanCopy)); } } }
 
     string? _error;
     public string? Error { get => _error; set { if (Set(ref _error, value)) OnChanged(nameof(HasError)); } }
     public bool HasError => !string.IsNullOrEmpty(Error);
 
-    string _latency = "";
-    public string Latency { get => _latency; set => Set(ref _latency, value); }
+    /// <summary>Speech recognition time after the question ended (null for typed questions / screenshots).</summary>
+    public double? RecognitionSeconds { get; init; }
+
+    double? _firstToken;
+    public double? FirstTokenSeconds
+    {
+        get => _firstToken;
+        set { if (Set(ref _firstToken, value)) { OnChanged(nameof(Latency)); OnChanged(nameof(HasLatency)); } }
+    }
+
+    /// <summary>«речь 0,6 с · ответ 1,1 с».</summary>
+    public string Latency
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (RecognitionSeconds is double r) parts.Add($"речь {r:0.0} с");
+            if (FirstTokenSeconds is double t) parts.Add($"ответ {t:0.0} с");
+            return string.Join("  ·  ", parts);
+        }
+    }
+    public bool HasLatency => Latency.Length > 0;
 
     public bool ShowSpinner => IsStreaming && Text.Length == 0;
+    public bool CanCopy => !IsStreaming && Text.Length > 0;
 
     bool _expanded = true;
     public bool IsExpanded { get => _expanded; set { if (Set(ref _expanded, value)) OnChanged(nameof(Chevron)); } }
-    public string Chevron => IsExpanded ? "" : "";   // Fluent chevron down / right
+    public string Chevron => IsExpanded ? "\uE70D" : "\uE76C";   // Fluent chevron down / right
 
     // The answer being read right now (marked with the red on-air rule).
     bool _current;
@@ -64,9 +85,24 @@ public sealed class AnswerItem : Observable
         get
         {
             var line = Text.Split('\n').FirstOrDefault(l => l.Trim().Length > 0) ?? "";
-            return line.Replace("**", "").Replace("#", "").Trim();
+            return line.Replace("**", "").Replace("`", "").Trim().TrimStart('#', '-', '*', '•', ' ');
         }
     }
+}
+
+/// <summary>One phrase being recognised piece by piece, while the person is still talking. UI thread only.</summary>
+sealed class Utterance
+{
+    public Utterance(int id, Speaker speaker) { Id = id; Speaker = speaker; }
+    public int Id { get; }
+    public Speaker Speaker { get; }
+    public List<Task<Recognized>> Pieces { get; } = new();
+    /// <summary>Recognised pieces, in order (live caption).</summary>
+    public List<string> Done { get; } = new();
+    public int Finished;
+    /// <summary>Caption of the piece being spoken right now.</summary>
+    public string Partial = "";
+    public string Caption => string.Join(" ", Done.Append(Partial).Where(t => t.Length > 0));
 }
 
 /// <summary>The whole session logic (view model of the main window).</summary>
@@ -90,11 +126,17 @@ public sealed class AppState : Observable
     readonly AnthropicApiClient _api;
     readonly ClaudeCodeClient _cli;
     readonly Dispatcher _ui;
+    readonly Dictionary<Speaker, Utterance> _utterances = new();
+    readonly DispatcherTimer _recTimer;
+    readonly DispatcherTimer _warmDebounce;
+    int _manualId = 1_000_000;
+    string _lastWarmKey = "";
 
     CancellationTokenSource? _answerCts;
     Guid? _currentAnswerId;
     string? _currentQuestion;
     DateTime _questionStartedAt = DateTime.MinValue, _lastInterviewerFinalAt = DateTime.MinValue, _lastMeAt = DateTime.MinValue;
+    DateTime? _recSinceInterviewer, _recSinceMe;
     bool _forceAnswerOnNextFinal;
     DispatcherTimer? _keepAlive;
     DateTime _sessionStart = DateTime.Now;
@@ -109,22 +151,39 @@ public sealed class AppState : Observable
         _mic.Samples += s => _micQ.Post(() => { _micSeg.Append(s); _micRec.Append(s); });
         _system.Failed += m => Ui(() => { Stop(); ShowError("Захват звука остановлен: " + m); });
         _mic.Failed += m => Ui(() => ShowError("Микрофон: " + m));
+        _system.Level += l => Ui(() => SystemLevel = l * 100);
         _mic.Level += l => Ui(() => MicLevel = l * 100);
 
-        _sysSeg.OnSpeechStart = () => Ui(() => InterviewerSpeaking = true);
-        _sysSeg.OnPartial = a => Ui(() => _ = HandlePartial(Speaker.Interviewer, a));
-        _sysSeg.OnFinal = a => Ui(() => _ = HandleFinal(Speaker.Interviewer, a));
-        _micSeg.OnFinal = a => Ui(() => _ = HandleFinal(Speaker.Me, a));
-        _sysRec.OnPartial = a => Ui(() => _ = HandleManualPartial(Speaker.Interviewer, a));
-        _micRec.OnPartial = a => Ui(() => _ = HandleManualPartial(Speaker.Me, a));
+        foreach (var (seg, sp) in new[] { (_sysSeg, Speaker.Interviewer), (_micSeg, Speaker.Me) })
+        {
+            seg.OnSpeechStart = id => Ui(() => SpeechStarted(sp, id));
+            seg.OnPartial = (id, a) => Ui(() => _ = HandlePartial(sp, id, a));
+            seg.OnPiece = (id, a) => Ui(() => HandlePiece(sp, id, a));
+            seg.OnFinal = (id, tail, voice) => Ui(() => _ = HandleFinal(sp, id, tail, voice));
+            seg.OnDiscard = id => Ui(() => Discard(sp, id));
+        }
+        foreach (var (rec, sp) in new[] { (_sysRec, Speaker.Interviewer), (_micRec, Speaker.Me) })
+        {
+            rec.OnPartial = (id, a) => Ui(() => _ = HandlePartial(sp, id, a));
+            rec.OnPiece = (id, a) => Ui(() => HandlePiece(sp, id, a));
+        }
+
+        _recTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _recTimer.Tick += (_, _) => UpdateElapsed();
+
+        // A changed resume / model / connection: prepare the model connection again in the background.
+        _warmDebounce = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _warmDebounce.Tick += (_, _) => { _warmDebounce.Stop(); if (WarmKey != _lastWarmKey) PrewarmLLM(); };
+        Settings.PropertyChanged += (_, _) => { _warmDebounce.Stop(); _warmDebounce.Start(); };
     }
 
     void Ui(Action a) => _ui.BeginInvoke(a);
 
     // MARK: - Bindable state
 
-    string _status = "Готов";
-    public string Status { get => _status; set => Set(ref _status, value); }
+    string _note = "";
+    /// <summary>Short transient note in the header ("" = the header shows what RedCast is doing).</summary>
+    public string Note { get => _note; set => Set(ref _note, value); }
 
     string _modelStatus = "Модель речи не загружена";
     public string ModelStatus { get => _modelStatus; set => Set(ref _modelStatus, value); }
@@ -138,13 +197,14 @@ public sealed class AppState : Observable
     bool _modelReady;
     public bool ModelReady { get => _modelReady; set => Set(ref _modelReady, value); }
 
+    bool _modelFailed;
+    public bool ModelFailed { get => _modelFailed; set => Set(ref _modelFailed, value); }
+
     bool _isListening;
-    public bool IsListening { get => _isListening; set { if (Set(ref _isListening, value)) OnChanged(nameof(StartLabel)); } }
+    public bool IsListening { get => _isListening; set => Set(ref _isListening, value); }
 
     bool _isStarting;
-    public bool IsStarting { get => _isStarting; set { if (Set(ref _isStarting, value)) OnChanged(nameof(StartLabel)); } }
-
-    public string StartLabel => IsListening ? "Стоп" : IsStarting ? "Запуск…" : "Старт";
+    public bool IsStarting { get => _isStarting; set => Set(ref _isStarting, value); }
 
     bool _interviewerSpeaking;
     public bool InterviewerSpeaking { get => _interviewerSpeaking; set => Set(ref _interviewerSpeaking, value); }
@@ -153,6 +213,16 @@ public sealed class AppState : Observable
     public bool RecordingInterviewer { get => _recInterviewer; set { if (Set(ref _recInterviewer, value)) OnChanged(nameof(IsRecording)); } }
     public bool RecordingMe { get => _recMe; set { if (Set(ref _recMe, value)) OnChanged(nameof(IsRecording)); } }
     public bool IsRecording => RecordingInterviewer || RecordingMe;
+
+    bool _recognizingInterviewer, _recognizingMe;
+    public bool RecognizingInterviewer { get => _recognizingInterviewer; set { if (Set(ref _recognizingInterviewer, value)) OnChanged(nameof(IsRecognizing)); } }
+    public bool RecognizingMe { get => _recognizingMe; set { if (Set(ref _recognizingMe, value)) OnChanged(nameof(IsRecognizing)); } }
+    public bool IsRecognizing => RecognizingInterviewer || RecognizingMe;
+
+    string _elapsedInterviewer = "", _elapsedMe = "";
+    /// <summary>«0:07» while the channel is being recorded.</summary>
+    public string ElapsedInterviewer { get => _elapsedInterviewer; set => Set(ref _elapsedInterviewer, value); }
+    public string ElapsedMe { get => _elapsedMe; set => Set(ref _elapsedMe, value); }
 
     string _partialInterviewer = "", _partialMe = "";
     public string PartialInterviewer { get => _partialInterviewer; set => Set(ref _partialInterviewer, value); }
@@ -164,12 +234,49 @@ public sealed class AppState : Observable
 
     public void ShowError(string text) => ErrorMessage = text;
 
+    double _systemLevel, _micLevel;
+    /// <summary>Input levels 0…100 for the meters.</summary>
+    public double SystemLevel { get => _systemLevel; set => Set(ref _systemLevel, value); }
+    public double MicLevel { get => _micLevel; set => Set(ref _micLevel, value); }
+
+    /// <summary>Problem that blocks answers right now (readiness checklist), null = fine.</summary>
+    public string? ConnectionProblem
+    {
+        get
+        {
+            var p = Settings.ActiveProvider;
+            if (Settings.Backend == "api" && string.IsNullOrWhiteSpace(Settings.ApiKey)) return "Не задан API-ключ Anthropic";
+            if (p != null && p.NeedsKey && string.IsNullOrWhiteSpace(Settings.ProviderKey)) return $"Не задан API-ключ {p.Title.Split(" — ")[0]}";
+            if (p != null && string.IsNullOrWhiteSpace(Settings.ProviderModel)) return "Не выбрана модель";
+            if (Settings.Backend == "claudecode" && !_cli.IsInstalled) return "Claude Code не найден";
+            return null;
+        }
+    }
+
+    /// <summary>What RedCast is doing right now, in plain words (header and strip).</summary>
+    public string PhaseTitle
+    {
+        get
+        {
+            if (Note.Length > 0) return Note;
+            if (RecordingInterviewer) return "Запись: интервьюер";
+            if (RecordingMe) return "Запись: вы";
+            if (IsRecognizing) return "Распознаю…";
+            var a = Answers.LastOrDefault();
+            if (a != null && a.IsStreaming && a.Id == _currentAnswerId) return a.Text.Length == 0 ? "Думаю…" : "Отвечаю…";
+            if (IsStarting) return "Запуск…";
+            if (IsListening) return InterviewerSpeaking ? "Интервьюер говорит…" : "Слушаю";
+            if (ShowProgress) return "Скачиваю модель речи";
+            if (!ModelReady && !ModelFailed) return "Загружаю распознавание…";
+            return "Готов";
+        }
+    }
+
+    public bool OnAir => IsListening || IsRecording;
+
     // MARK: - Microphone choice
 
     public ObservableCollection<Option> MicDevices { get; } = new();
-
-    double _micLevel;
-    public double MicLevel { get => _micLevel; set => Set(ref _micLevel, value); }
 
     bool _micTesting;
     public bool MicTesting { get => _micTesting; set { if (Set(ref _micTesting, value)) OnChanged(nameof(MicTestLabel)); } }
@@ -201,7 +308,7 @@ public sealed class AppState : Observable
         if (MicTesting)
         {
             MicTesting = false;
-            if (!IsListening) _mic.Stop();
+            if (!IsListening && !IsRecording) _mic.Stop();
             return;
         }
         ErrorMessage = null;
@@ -288,6 +395,7 @@ public sealed class AppState : Observable
     {
         var model = Settings.WhisperModel;
         ModelReady = false;
+        ModelFailed = false;
         bool download = !Transcriber.IsDownloaded(model);
         ShowProgress = download;
         ModelProgress = 0;
@@ -307,9 +415,10 @@ public sealed class AppState : Observable
         catch (Exception ex)
         {
             ShowProgress = false;
+            ModelFailed = true;
             ModelStatus = "Ошибка модели речи";
             ShowError("Не удалось загрузить модель речи: " + ex.Message +
-                      ". Проверьте интернет и нажмите «Перезагрузить модель» в настройках.");
+                      ". Проверьте интернет и нажмите «Перезагрузить модель» в настройках → «Речь».");
         }
     }
 
@@ -348,13 +457,8 @@ public sealed class AppState : Observable
         if (IsListening) return;
         IsListening = true;
         _sessionStart = DateTime.Now;
-        var provider = Settings.ActiveProvider;
-        if (Settings.Backend == "api" && string.IsNullOrWhiteSpace(Settings.ApiKey))
-            ShowError("Подсказок не будет: не задан API-ключ. Откройте вкладку «Настройки» → 1. Подключение модели.");
-        else if (provider != null && provider.NeedsKey && string.IsNullOrWhiteSpace(Settings.ProviderKey))
-            ShowError($"Подсказок не будет: не задан API-ключ ({provider.Title.Split(" — ")[0]}). Откройте вкладку «Настройки» → 1. Подключение модели.");
-        else if (provider != null && string.IsNullOrWhiteSpace(Settings.ProviderModel))
-            ShowError("Подсказок не будет: не выбрана модель. Откройте вкладку «Настройки» → 1. Подключение модели → «Список моделей».");
+        if (ConnectionProblem is string problem)
+            ShowError($"Подсказок не будет: {problem.ToLowerInvariant()}. Откройте настройки (шестерёнка) → «ИИ».");
         PrewarmLLM();
         _keepAlive?.Stop();
         _keepAlive = new DispatcherTimer { Interval = TimeSpan.FromMinutes(4) };
@@ -369,14 +473,13 @@ public sealed class AppState : Observable
         if (Settings.ListenMode == mode) return;
         Stop();
         Settings.ListenMode = mode;
-        Status = mode == "auto" ? "Готов — нажмите «Старт»" : "Готов — нажмите «Интервьюер» или «Я»";
     }
 
     public async void ToggleListening()
     {
         if (Settings.IsManual)
         {
-            if (IsListening) Stop(); else Status = "Режим «По кнопкам»: нажмите «Интервьюер» или «Я»";
+            if (IsListening) Stop(); else Note = "Режим «По кнопкам»: нажмите «Интервьюер» или «Я»";
             return;
         }
         if (IsListening) Stop(); else await Start();
@@ -389,17 +492,17 @@ public sealed class AppState : Observable
         try
         {
             ErrorMessage = null;
+            Note = "";
             if (!ModelReady)
             {
-                Status = "Жду модель речи — прослушивание начнётся автоматически";
+                Note = "Жду модель речи — прослушивание начнётся само";
                 await LoadSpeechModel();
+                Note = "";
             }
-            if (!ModelReady) { Status = "Готов"; return; }
-            Status = "Запускаю…";
+            if (!ModelReady) return;
             SetAutoSegmentation(true);
-            if (!EnsureCaptures(true, Settings.CaptureMic, false)) { Status = "Готов"; return; }
+            if (!EnsureCaptures(true, Settings.CaptureMic, false)) return;
             SessionStarted();
-            Status = "Слушаю…";
         }
         finally { IsStarting = false; }
     }
@@ -413,31 +516,122 @@ public sealed class AppState : Observable
         _micQ.Invoke(() => _micRec.Cancel());
         SetAutoSegmentation(false);
         _keepAlive?.Stop();
+        _recTimer.Stop();
         IsListening = false;
         MicTesting = false;
         RecordingInterviewer = RecordingMe = false;
+        _recSinceInterviewer = _recSinceMe = null;
+        ElapsedInterviewer = ElapsedMe = "";
         InterviewerSpeaking = false;
         PartialInterviewer = PartialMe = "";
-        if (was) { Status = "Пауза"; SaveSession(); }
+        SystemLevel = MicLevel = 0;
+        _utterances.Clear();
+        if (was) SaveSession();
     }
 
-    async Task HandlePartial(Speaker sp, float[] audio)
+    // MARK: - Piece-by-piece recognition (both modes)
+
+    void SetPartial(Speaker sp, string text)
     {
-        if (sp == Speaker.Interviewer && !InterviewerSpeaking) return;
-        var text = await Task.Run(() => _transcriber.TranscribePartialAsync(audio, Settings.WhisperLanguage, Settings.Vocabulary));
-        if (!string.IsNullOrEmpty(text) && InterviewerSpeaking) PartialInterviewer = text;
+        if (sp == Speaker.Interviewer) PartialInterviewer = text; else PartialMe = text;
     }
 
-    async Task HandleFinal(Speaker sp, float[] audio)
+    string Prompt(string previous)
+    {
+        if (!Settings.PreciseTerms) return "";
+        var prev = previous.Length > 160 ? previous[^160..] : previous;
+        return (Settings.Vocabulary.Trim() + " " + prev).Trim();
+    }
+
+    /// <summary>
+    /// Recognises one finished piece of a phrase in the background. Pieces are chained: each starts
+    /// after the previous one, gets its text as context and (in «auto») stays in its language.
+    /// </summary>
+    void AddPiece(Utterance u, float[] audio, bool urgent)
+    {
+        var previous = u.Pieces.LastOrDefault();
+        var lang = Settings.WhisperLanguage;
+        bool precise = Settings.PreciseTerms;
+        var vocab = Settings.Vocabulary;
+        var task = Task.Run(async () =>
+        {
+            Recognized? before = previous != null ? await previous : null;
+            var l = lang ?? before?.Language;
+            var prev = before?.Text ?? "";
+            if (prev.Length > 160) prev = prev[^160..];
+            var prompt = precise ? (vocab.Trim() + " " + prev).Trim() : "";
+            return await _transcriber.RecognizeAsync(audio, l, prompt, urgent);
+        });
+        u.Pieces.Add(task);
+        u.Partial = "";
+        _ = task.ContinueWith(t => Ui(() =>
+        {
+            u.Finished++;
+            if (t.IsCompletedSuccessfully && t.Result.Text.Length > 0) u.Done.Add(t.Result.Text);
+            if (_utterances.TryGetValue(u.Speaker, out var cur) && cur == u) SetPartial(u.Speaker, u.Caption);
+        }), TaskScheduler.Default);
+    }
+
+    /// <summary>The phrase ended: recognise the tail and join all pieces.</summary>
+    async Task<(string Text, double Seconds)> Finish(Utterance u, float[] tail, bool hasVoice, bool urgent)
+    {
+        var started = DateTime.Now;
+        if (hasVoice && tail.Length > 0) AddPiece(u, tail, urgent);
+        if (_utterances.TryGetValue(u.Speaker, out var cur) && cur == u) _utterances.Remove(u.Speaker);
+        var texts = new List<string>();
+        foreach (var p in u.Pieces)
+        {
+            try { texts.Add((await p).Text); } catch { }
+        }
+        var text = Transcriber.CollapseRepeats(string.Join(" ", texts.Where(t => t.Length > 0)).Trim());
+        return (text, (DateTime.Now - started).TotalSeconds);
+    }
+
+    void SpeechStarted(Speaker sp, int id)
+    {
+        if (sp == Speaker.Interviewer) InterviewerSpeaking = true;
+        _utterances[sp] = new Utterance(id, sp);
+    }
+
+    void HandlePiece(Speaker sp, int id, float[] audio)
+    {
+        if (!_utterances.TryGetValue(sp, out var u) || u.Id != id) return;
+        AddPiece(u, audio, sp == Speaker.Interviewer || Settings.IsManual);
+    }
+
+    async Task HandlePartial(Speaker sp, int id, float[] audio)
+    {
+        if (!_utterances.TryGetValue(sp, out var u) || u.Id != id) return;
+        var lang = Settings.WhisperLanguage;
+        var prompt = Prompt(u.Done.LastOrDefault() ?? "");
+        var text = await Task.Run(() => _transcriber.TranscribePartialAsync(audio, lang, prompt));
+        if (string.IsNullOrEmpty(text) || !_utterances.TryGetValue(sp, out var cur) || cur != u || u.Pieces.Count != u.Finished) return;
+        u.Partial = text;
+        SetPartial(sp, u.Caption);
+    }
+
+    void Discard(Speaker sp, int id)
+    {
+        if (!_utterances.TryGetValue(sp, out var u) || u.Id != id) return;
+        _utterances.Remove(sp);
+        if (sp == Speaker.Interviewer) InterviewerSpeaking = false;
+        SetPartial(sp, "");
+    }
+
+    void SetRecognizing(Speaker sp, bool on)
+    {
+        if (sp == Speaker.Interviewer) RecognizingInterviewer = on; else RecognizingMe = on;
+    }
+
+    async Task HandleFinal(Speaker sp, int id, float[] tail, bool hasVoice)
     {
         if (sp == Speaker.Interviewer) InterviewerSpeaking = false;
-        var lang = Settings.WhisperLanguage;
-        var vocab = Settings.Vocabulary;
-        var started = DateTime.Now;
-        var text = await Task.Run(() => _transcriber.TranscribeAsync(audio, lang, vocab, sp == Speaker.Interviewer));
-        var seconds = (DateTime.Now - started).TotalSeconds;
-        if (sp == Speaker.Interviewer) PartialInterviewer = "";
-        if (string.IsNullOrEmpty(text) || !IsListening || Settings.IsManual) return;
+        if (!_utterances.TryGetValue(sp, out var u) || u.Id != id) return;
+        if (sp == Speaker.Interviewer) SetRecognizing(sp, true);
+        var (text, seconds) = await Finish(u, tail, hasVoice, sp == Speaker.Interviewer);
+        SetRecognizing(sp, false);
+        SetPartial(sp, _utterances.TryGetValue(sp, out var next) ? next.Caption : "");
+        if (text.Length == 0 || !IsListening || Settings.IsManual) return;
         if (sp == Speaker.Me)
         {
             if (IsEcho(text)) return;   // the mic heard the interviewer from the speakers
@@ -445,7 +639,7 @@ public sealed class AppState : Observable
         }
         Entries.Add(new TranscriptEntry(sp, text, seconds));
         TrimEntries();
-        if (sp == Speaker.Interviewer) InterviewerSaid(text);
+        if (sp == Speaker.Interviewer) InterviewerSaid(text, seconds);
     }
 
     static HashSet<string> Words(string s) =>
@@ -462,7 +656,7 @@ public sealed class AppState : Observable
         return (double)mine.Count(theirs.Contains) / mine.Count >= 0.6;
     }
 
-    void InterviewerSaid(string text)
+    void InterviewerSaid(string text, double recognition)
     {
         var now = DateTime.Now;
         // Same question only if the interviewer paused briefly (< 4 s) and I haven't spoken since.
@@ -476,7 +670,7 @@ public sealed class AppState : Observable
         bool force = _forceAnswerOnNextFinal;
         _forceAnswerOnNextFinal = false;
         if ((Settings.AutoAnswer || force) && _currentQuestion != null)
-            Ask(_currentQuestion, Prompts.Question(Context(_questionStartedAt), _currentQuestion), null, continuing);
+            Ask(_currentQuestion, Prompts.Question(Context(_questionStartedAt), _currentQuestion), null, continuing, recognition);
     }
 
     // MARK: - Mode «По кнопкам»
@@ -491,31 +685,59 @@ public sealed class AppState : Observable
     {
         if (!Settings.IsManual) { Stop(); Settings.ListenMode = "manual"; }
         ErrorMessage = null;
+        Note = "";
         SetAutoSegmentation(false);
         if (!EnsureCaptures(sp == Speaker.Interviewer, sp == Speaker.Me, true)) return;
         SessionStarted();
-        if (sp == Speaker.Interviewer) { _sysQ.Invoke(() => _sysRec.Start()); RecordingInterviewer = true; }
-        else { _micQ.Invoke(() => _micRec.Start()); RecordingMe = true; }
-        Status = sp == Speaker.Interviewer
-            ? "Записываю интервьюера — нажмите ещё раз, чтобы получить ответ"
-            : "Записываю вас — нажмите ещё раз, чтобы получить ответ";
+        int id = ++_manualId;
+        _utterances[sp] = new Utterance(id, sp);
+        if (sp == Speaker.Interviewer)
+        {
+            _sysQ.Invoke(() => _sysRec.Start(id));
+            RecordingInterviewer = true;
+            _recSinceInterviewer = DateTime.Now;
+        }
+        else
+        {
+            _micQ.Invoke(() => _micRec.Start(id));
+            RecordingMe = true;
+            _recSinceMe = DateTime.Now;
+        }
+        UpdateElapsed();
+        _recTimer.Start();
         if (!ModelReady) _ = LoadSpeechModel();
+    }
+
+    void UpdateElapsed()
+    {
+        static string F(DateTime? since) => since is DateTime d ? $"{(int)(DateTime.Now - d).TotalMinutes}:{(DateTime.Now - d).Seconds:00}" : "";
+        ElapsedInterviewer = F(_recSinceInterviewer);
+        ElapsedMe = F(_recSinceMe);
+        if (!IsRecording) _recTimer.Stop();
     }
 
     async Task FinishRecording(Speaker sp)
     {
-        float[] audio;
-        if (sp == Speaker.Interviewer) { audio = _sysQ.Invoke(() => _sysRec.Stop()); RecordingInterviewer = false; PartialInterviewer = ""; }
-        else { audio = _micQ.Invoke(() => _micRec.Stop()); RecordingMe = false; PartialMe = ""; }
-        Status = "Распознаю…";
-        if (!ModelReady) await LoadSpeechModel();
-        var lang = Settings.WhisperLanguage;
-        var vocab = Settings.Vocabulary;
-        var started = DateTime.Now;
-        var text = await Task.Run(() => _transcriber.TranscribeAsync(audio, lang, vocab, true));
-        var seconds = (DateTime.Now - started).TotalSeconds;
-        if (!IsRecording) Status = "Готов — нажмите «Интервьюер» или «Я»";
-        if (string.IsNullOrEmpty(text))
+        (float[] Tail, bool HasVoice) stopped;
+        if (sp == Speaker.Interviewer)
+        {
+            stopped = _sysQ.Invoke(() => _sysRec.Stop());
+            RecordingInterviewer = false;
+            _recSinceInterviewer = null;
+        }
+        else
+        {
+            stopped = _micQ.Invoke(() => _micRec.Stop());
+            RecordingMe = false;
+            _recSinceMe = null;
+        }
+        UpdateElapsed();
+        if (!_utterances.TryGetValue(sp, out var u)) return;
+        SetRecognizing(sp, true);
+        var (text, seconds) = await Finish(u, stopped.Tail, stopped.HasVoice, true);
+        SetRecognizing(sp, false);
+        SetPartial(sp, _utterances.TryGetValue(sp, out var next) ? next.Caption : "");
+        if (text.Length == 0)
         {
             ShowError("Речь не распознана. Проверьте, что звук идёт, и попробуйте ещё раз.");
             return;
@@ -525,18 +747,8 @@ public sealed class AppState : Observable
         _currentQuestion = text;
         _questionStartedAt = DateTime.Now;
         var ctx = Context(DateTime.Now.AddSeconds(-0.5));
-        if (sp == Speaker.Interviewer) Ask(text, Prompts.Question(ctx, text), null, false);
-        else Ask("Я: " + text, Prompts.Mine(ctx, text), null, false);
-    }
-
-    async Task HandleManualPartial(Speaker sp, float[] audio)
-    {
-        bool rec = sp == Speaker.Interviewer ? RecordingInterviewer : RecordingMe;
-        if (!rec) return;
-        var text = await Task.Run(() => _transcriber.TranscribePartialAsync(audio, Settings.WhisperLanguage, Settings.Vocabulary));
-        if (string.IsNullOrEmpty(text)) return;
-        if (sp == Speaker.Interviewer && RecordingInterviewer) PartialInterviewer = text;
-        if (sp == Speaker.Me && RecordingMe) PartialMe = text;
+        if (sp == Speaker.Interviewer) Ask(text, Prompts.Question(ctx, text), null, false, seconds);
+        else Ask("Я: " + text, Prompts.Mine(ctx, text), null, false, seconds);
     }
 
     // MARK: - Actions
@@ -566,20 +778,30 @@ public sealed class AppState : Observable
         Ask(q, Prompts.Question(Context(DateTime.Now), q), null, false);
     }
 
+    public void TestConnection() =>
+        Ask("Проверка связи", "Тест связи: ответь одним словом «работает».", null, false);
+
     public async void SolveScreenshot()
     {
         try
         {
+            Note = "Скриншот…";
             var jpeg = await Task.Run(ScreenGrabber.CaptureJpeg);
+            Note = "";
             Ask("Задача с экрана", Prompts.Screenshot(Context(DateTime.Now), !string.IsNullOrWhiteSpace(Settings.AnswerFormat)), jpeg, false);
         }
-        catch (Exception ex) { ShowError("Скриншот не удался: " + ex.Message); }
+        catch (Exception ex)
+        {
+            Note = "";
+            ShowError("Скриншот не удался: " + ex.Message);
+        }
     }
 
     public void StopAnswer()
     {
         _answerCts?.Cancel();
         foreach (var a in Answers) a.IsStreaming = false;
+        OnChanged(nameof(PhaseTitle));
     }
 
     public void Clear()
@@ -594,11 +816,11 @@ public sealed class AppState : Observable
 
     void TrimEntries() { while (Entries.Count > 200) Entries.RemoveAt(0); }
 
-    // MARK: - Claude
+    // MARK: - Model
 
     string Context(DateTime before)
     {
-        var lines = Entries.Where(e => e.Date < before).TakeLast(24).Select(e => $"[{e.Label.TrimEnd(':', ' ')}] {e.Text}").ToList();
+        var lines = Entries.Where(e => e.Date < before).TakeLast(24).Select(e => $"[{e.Label.Trim()}] {e.Text}").ToList();
         while (lines.Count > 0 && string.Join("\n", lines).Length > 6000) lines.RemoveAt(0);
         return string.Join("\n", lines);
     }
@@ -610,11 +832,22 @@ public sealed class AppState : Observable
         ? new OpenAICompatClient(p, Settings.ProviderKey, Settings.ProviderUrl)
         : Settings.Backend == "api" ? _api : _cli;
 
+    string WarmKey => $"{Settings.Backend}|{Settings.ActiveModel}|{Settings.Effort}|{Settings.FastMode}|{Prompts.System(Settings).GetHashCode()}";
+
+    /// <summary>
+    /// Warms whatever the current connection needs: the prompt cache (API), a waiting CLI process
+    /// (subscription) or the TLS connection (other providers).
+    /// </summary>
     public void PrewarmLLM()
     {
-        if (Settings.ActiveProvider != null) return;   // no prompt cache to warm on these APIs
+        _lastWarmKey = WarmKey;
         var req = MakeRequest("ping", null);
-        if (Settings.Backend == "api")
+        if (Settings.ActiveProvider is Provider p)
+        {
+            var client = new OpenAICompatClient(p, Settings.ProviderKey, Settings.ProviderUrl);
+            _ = Task.Run(client.PrewarmAsync);
+        }
+        else if (Settings.Backend == "api")
         {
             if (string.IsNullOrWhiteSpace(Settings.ApiKey)) return;
             _ = Task.Run(() => _api.PrewarmAsync(req));
@@ -622,12 +855,14 @@ public sealed class AppState : Observable
         else _ = Task.Run(() => _cli.Prewarm(req));
     }
 
-    void Ask(string question, string prompt, byte[]? image, bool replaceCurrent)
+    public void Shutdown() => _cli.Shutdown();
+
+    void Ask(string question, string prompt, byte[]? image, bool replaceCurrent, double? recognition = null)
     {
         _answerCts?.Cancel();
         foreach (var a in Answers) a.IsStreaming = false;
 
-        var item = new AnswerItem(question) { IsCurrent = true };
+        var item = new AnswerItem(question) { IsCurrent = true, RecognitionSeconds = recognition };
         // Older answers fold into one line so the new one gets the whole window.
         foreach (var a in Answers) { a.IsExpanded = false; a.IsCurrent = false; }
         var idx = replaceCurrent && _currentAnswerId != null ? Answers.ToList().FindIndex(a => a.Id == _currentAnswerId) : -1;
@@ -638,6 +873,7 @@ public sealed class AppState : Observable
             while (Answers.Count > 30) Answers.RemoveAt(0);
         }
         _currentAnswerId = item.Id;
+        OnChanged(nameof(PhaseTitle));
 
         var cts = new CancellationTokenSource();
         _answerCts = cts;
@@ -658,19 +894,20 @@ public sealed class AppState : Observable
                     Ui(() =>
                     {
                         if (cts.IsCancellationRequested) return;
-                        if (f) item.Latency = $"{(DateTime.Now - item.Started).TotalSeconds:0.0} с";
+                        if (f) item.FirstTokenSeconds = (DateTime.Now - item.Started).TotalSeconds;
                         string snapshot;
                         lock (sb) snapshot = sb.ToString();
                         item.Text = snapshot;
+                        if (f) OnChanged(nameof(PhaseTitle));
                     });
                 }, cts.Token);
-                Ui(() => item.IsStreaming = false);
+                Ui(() => { item.IsStreaming = false; OnChanged(nameof(PhaseTitle)); });
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
                 if (cts.IsCancellationRequested) return;
-                Ui(() => { item.IsStreaming = false; item.Error = ex.Message; });
+                Ui(() => { item.IsStreaming = false; item.Error = ex.Message; OnChanged(nameof(PhaseTitle)); });
             }
         });
     }
@@ -687,7 +924,7 @@ public sealed class AppState : Observable
         {
             Directory.CreateDirectory(SessionsFolder);
             var sb = new StringBuilder($"# Собеседование {_sessionStart:yyyy-MM-dd HH:mm}\n\n## Расшифровка\n\n");
-            foreach (var e in Entries) sb.Append($"- `{e.Date:HH:mm:ss}` **{e.Label.Trim()}** {e.Text}\n");
+            foreach (var e in Entries) sb.Append($"- `{e.Date:HH:mm:ss}` **{e.Label.Trim()}:** {e.Text}\n");
             sb.Append("\n## Подсказки\n\n");
             foreach (var a in Answers) sb.Append($"### {a.Question}\n\n{a.Text}\n\n");
             File.WriteAllText(Path.Combine(SessionsFolder, $"{_sessionStart:yyyy-MM-dd_HH-mm}.md"), sb.ToString(), Encoding.UTF8);

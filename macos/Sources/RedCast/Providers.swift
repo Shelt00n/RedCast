@@ -158,6 +158,14 @@ final class OpenAICompatClient: LLMClient {
         }
     }
 
+    /// Opens the TLS connection before the first question (GET /models costs no tokens),
+    /// so the answer does not wait for DNS + TLS handshakes.
+    func prewarm() async {
+        guard !(provider.needsKey && key.isEmpty), var req = try? makeRequest("GET", "/models", body: nil) else { return }
+        req.timeoutInterval = 10
+        _ = try? await Self.session.data(for: req)
+    }
+
     // Embeddings, speech, images and moderation are useless for answers.
     private static let notChat = ["embed", "whisper", "tts", "dall-e", "moderation", "transcribe", "audio", "realtime",
                                   "image", "imagen", "veo", "rerank", "guard", "aqa", "speech"]

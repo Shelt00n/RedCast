@@ -43,6 +43,24 @@ struct RedCastApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let i = CommandLine.arguments.firstIndex(of: "--bench"), i + 1 < CommandLine.arguments.count {
+            let folder = URL(fileURLWithPath: CommandLine.arguments[i + 1])
+            Task { @MainActor in
+                let code = await AppState.shared.runBenchmark(folder: folder)
+                exit(code)
+            }
+            return
+        }
+        if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLine.arguments.count {
+            let folder = URL(fileURLWithPath: CommandLine.arguments[i + 1])
+            Task { @MainActor in exit(await Snapshots.run(folder: folder)) }
+            return
+        }
+        if let i = CommandLine.arguments.firstIndex(of: "--replay"), i + 1 < CommandLine.arguments.count {
+            let file = URL(fileURLWithPath: CommandLine.arguments[i + 1])
+            Task { @MainActor in exit(await AppState.shared.replay(file: file)) }
+            return
+        }
         if CommandLine.arguments.contains("--self-test") {
             Task {
                 let code = await Updater.selfTest()
@@ -76,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
             AppState.shared.stop()
+            AppState.shared.cliClient.shutdown()
         }
     }
 }

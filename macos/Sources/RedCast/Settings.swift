@@ -16,16 +16,25 @@ enum Backend: String, CaseIterable, Identifiable {
         }
     }
     var provider: Provider? { Providers.find(rawValue) }
+
+    /// Short name for the header: «Claude · подписка», «Gemini»…
+    var shortTitle: String {
+        switch self {
+        case .api: return "Claude API"
+        case .claudeCode: return "Claude · подписка"
+        default: return provider?.shortName ?? rawValue
+        }
+    }
 }
 
 enum SpeechLanguage: String, CaseIterable, Identifiable {
-    case ru, uk, auto
+    case auto, ru, uk
     var id: String { rawValue }
     var title: String {
         switch self {
         case .ru: return "Русский"
         case .uk: return "Українська"
-        case .auto: return "Автоопределение (ru / uk / en)"
+        case .auto: return "Русский и украинский (авто)"
         }
     }
     /// Whisper language code; nil = detect
@@ -72,18 +81,18 @@ struct ModelOption: Identifiable, Hashable {
 
 enum Catalog {
     static let claudeModels: [ModelOption] = [
-        ModelOption(id: "claude-opus-5-5", title: "Claude Opus 5.5 — самый умный (по умолчанию)"),
-        ModelOption(id: "claude-sonnet-5-5", title: "Claude Sonnet 5.5 — быстрее"),
-        ModelOption(id: "claude-haiku-5-5", title: "Claude Haiku 5.5 — максимально быстрый"),
+        ModelOption(id: "claude-opus-5-5", title: "Opus 5.5 — самый умный · ответ через ~2 с"),
+        ModelOption(id: "claude-sonnet-5-5", title: "Sonnet 5.5 — быстрый и умный · ~1 с"),
+        ModelOption(id: "claude-haiku-5-5", title: "Haiku 5.5 — самый быстрый · ~1 с"),
     ]
     static let efforts: [ModelOption] = [
-        ModelOption(id: "low", title: "low — быстрый ответ (рекомендуется)"),
-        ModelOption(id: "medium", title: "medium — глубже, медленнее"),
-        ModelOption(id: "high", title: "high — для сложных задач"),
+        ModelOption(id: "low", title: "Быстро"),
+        ModelOption(id: "medium", title: "Глубже"),
+        ModelOption(id: "high", title: "Максимум"),
     ]
     static let whisperModels: [ModelOption] = [
-        ModelOption(id: "large-v3-v20240930_turbo", title: "Whisper Large v3 Turbo — лучшая точность и скорость (~1.6 ГБ)"),
-        ModelOption(id: "large-v3-v20240930_626MB", title: "Whisper Large v3 Turbo сжатая (~0.6 ГБ, для 8 ГБ RAM)"),
+        ModelOption(id: "large-v3-v20240930_turbo", title: "Large v3 Turbo · 1,6 ГБ"),
+        ModelOption(id: "large-v3-v20240930_626MB", title: "Turbo сжатая · 0,6 ГБ (8 ГБ RAM)"),
     ]
 }
 
@@ -144,6 +153,8 @@ final class AppSettings: ObservableObject {
     @Published var autoAnswer: Bool { didSet { d.set(autoAnswer, forKey: "autoAnswer") } }
     @Published var listenMode: ListenMode { didSet { d.set(listenMode.rawValue, forKey: "listenMode") } }
     @Published var echoCancellation: Bool { didSet { d.set(echoCancellation, forKey: "echoCancellation") } }
+    /// Give Whisper the terms as a prompt: exact spelling, ~0.4 s slower per phrase.
+    @Published var preciseTerms: Bool { didSet { d.set(preciseTerms, forKey: "preciseTerms") } }
 
     // Profile
     @Published var answerLanguage: AnswerLanguage { didSet { d.set(answerLanguage.rawValue, forKey: "answerLanguage") } }
@@ -171,7 +182,7 @@ final class AppSettings: ObservableObject {
         fastMode = d.object(forKey: "fastMode") as? Bool ?? false
         claudePath = d.string(forKey: "claudePath") ?? ""
 
-        speechLanguage = SpeechLanguage(rawValue: d.string(forKey: "speechLanguage") ?? "") ?? .ru
+        speechLanguage = SpeechLanguage(rawValue: d.string(forKey: "speechLanguage") ?? "") ?? .auto
         whisperModel = d.string(forKey: "whisperModel") ?? "large-v3-v20240930_turbo"
         vocabulary = d.string(forKey: "vocabulary") ?? "Собеседование. Kubernetes, Docker, PostgreSQL, Kafka, Redis, React, TypeScript, Python, Java, Go, Swift, REST, gRPC, CI/CD, microservices, SOLID, Big O."
         silenceMs = d.object(forKey: "silenceMs") as? Double ?? 700
@@ -180,6 +191,14 @@ final class AppSettings: ObservableObject {
         autoAnswer = d.object(forKey: "autoAnswer") as? Bool ?? true
         listenMode = ListenMode(rawValue: d.string(forKey: "listenMode") ?? "") ?? .auto
         echoCancellation = d.object(forKey: "echoCancellation") as? Bool ?? true
+        preciseTerms = d.object(forKey: "preciseTerms") as? Bool ?? false
+        // 2.7: «auto» now picks only between ru / uk / en and keeps one language per phrase, so it is as
+        // accurate as a fixed language and does not turn a Russian question into Ukrainian (or back).
+        if d.object(forKey: "speechLanguageAuto27") == nil {
+            d.set(true, forKey: "speechLanguageAuto27")
+            d.set(SpeechLanguage.auto.rawValue, forKey: "speechLanguage")   // didSet does not run inside init
+            speechLanguage = .auto
+        }
 
         answerLanguage = AnswerLanguage(rawValue: d.string(forKey: "answerLanguage") ?? "") ?? .same
         resume = d.string(forKey: "resume") ?? ""

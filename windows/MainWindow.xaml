@@ -5,149 +5,273 @@
         xmlns:core="clr-namespace:RedCast.Core"
         Title="RedCast"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        Topmost="True" ShowInTaskbar="False" ResizeMode="CanResizeWithGrip"
-        Width="560" Height="720" MinWidth="440" MinHeight="52"
+        Topmost="True" ShowInTaskbar="False" ResizeMode="CanResize"
+        Width="480" Height="680" MinWidth="380" MinHeight="48"
         FontFamily="{StaticResource UiFont}" FontSize="13" Foreground="{StaticResource Fg}"
         TextOptions.TextFormattingMode="Display"
         Opacity="{Binding Settings.Opacity}">
-    <!-- Resize from every edge and corner (the window has no system frame) -->
+    <!-- Resize from the left, right and bottom edges. The top edge is left free: the whole header moves the window. -->
     <WindowChrome.WindowChrome>
-        <WindowChrome CaptionHeight="0" ResizeBorderThickness="7" GlassFrameThickness="0"
-                      CornerRadius="12" UseAeroCaptionButtons="False"/>
+        <WindowChrome CaptionHeight="0" ResizeBorderThickness="6,0,6,6" GlassFrameThickness="0"
+                      CornerRadius="14" UseAeroCaptionButtons="False"/>
     </WindowChrome.WindowChrome>
-    <Border CornerRadius="12" Background="{StaticResource Bg}" BorderBrush="{StaticResource LineStrong}" BorderThickness="1">
+    <Border CornerRadius="14" Background="{StaticResource Glass}" BorderBrush="{StaticResource LineStrong}" BorderThickness="1">
         <Grid>
-            <!-- ========== Compact bar ========== -->
-            <Grid x:Name="CompactBar" Visibility="Collapsed" Margin="12,0,8,0" Background="Transparent" MouseLeftButtonDown="Drag"
-                  ToolTip="Потяните, чтобы переместить окно">
+            <!-- ========== Compact strip ========== -->
+            <Grid x:Name="CompactBar" Visibility="Collapsed" Margin="8,0" Background="Transparent" MouseLeftButtonDown="Strip_MouseDown"
+                  ToolTip="Потяните, чтобы переместить. Двойной клик — развернуть">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <Grid Width="16" Height="16" VerticalAlignment="Center" Margin="0,0,8,0">
-                    <Ellipse x:Name="CompactRing" Width="16" Height="16" Stroke="{StaticResource AccentSoft}" StrokeThickness="2" Visibility="Collapsed"/>
+                <Grid Width="20" Height="20" VerticalAlignment="Center" Margin="2,0,4,0" IsHitTestVisible="False">
+                    <Ellipse x:Name="CompactPulse" Width="20" Height="20" Fill="{StaticResource AccentLine}" Opacity="0" RenderTransformOrigin="0.5,0.5">
+                        <Ellipse.RenderTransform><ScaleTransform/></Ellipse.RenderTransform>
+                    </Ellipse>
                     <Ellipse x:Name="CompactDot" Width="8" Height="8" Fill="{StaticResource Idle}"/>
                 </Grid>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="CompactStart" Style="{StaticResource IconBtn}" Click="Start_Click" Margin="0,0,4,0"/>
-                    <Button x:Name="CompactAnswer" Style="{StaticResource IconBtn}" Content="&#xE945;" ToolTip="Ответить сейчас" Click="Answer_Click" Margin="0,0,4,0"/>
-                    <Button x:Name="CompactRecI" Style="{StaticResource IconBtn}" Click="RecI_Click" Margin="0,0,4,0" ToolTip="Интервьюер"/>
-                    <Button x:Name="CompactRecMe" Style="{StaticResource IconBtn}" Click="RecMe_Click" Margin="0,0,4,0" ToolTip="Я"/>
-                    <Button Style="{StaticResource IconBtn}" Content="&#xE722;" ToolTip="Задача со скриншота" Click="Screenshot_Click" Margin="0,0,12,0"/>
+                    <Button x:Name="CompactStart" Style="{StaticResource IconBtn}" Click="Start_Click"/>
+                    <Button x:Name="CompactAnswer" Style="{StaticResource IconBtn}" Content="&#xE945;" ToolTip="Ответить сейчас" Click="Answer_Click"/>
+                    <Button x:Name="CompactRecI" Style="{StaticResource IconBtn}" Click="RecI_Click" ToolTip="Интервьюер: запись → ответ"/>
+                    <Button x:Name="CompactRecMe" Style="{StaticResource IconBtn}" Click="RecMe_Click" ToolTip="Я: запись → подсказка"/>
+                    <Button Style="{StaticResource IconBtn}" Content="&#xE722;" ToolTip="Задача со скриншота" Click="Screenshot_Click"/>
                 </StackPanel>
                 <TextBlock x:Name="CompactText" Grid.Column="2" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                           FontSize="14" FontWeight="Medium"/>
-                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
-                    <Button Style="{StaticResource IconBtn}" Content="&#xE740;" ToolTip="Развернуть" Click="Compact_Click"/>
-                    <Button Style="{StaticResource IconBtn}" Content="&#xE8BB;" FontSize="12" ToolTip="Скрыть окно (вернуть — значок в трее)" Click="Hide_Click"/>
+                           FontSize="13" FontWeight="Medium" Margin="8,0" IsHitTestVisible="False"/>
+                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource IconBtn}" Content="&#xE740;" FontSize="12" ToolTip="Развернуть" Click="Compact_Click"/>
+                    <Button Style="{StaticResource IconBtn}" Content="&#xE8BB;" FontSize="11" ToolTip="Скрыть окно (вернуть — значок в трее)" Click="Hide_Click"/>
                 </StackPanel>
             </Grid>
 
             <!-- ========== Full view ========== -->
             <DockPanel x:Name="FullView">
-                <!-- Header -->
-                <StackPanel DockPanel.Dock="Top" Margin="16,8,8,12" Background="Transparent" MouseLeftButtonDown="Drag">
-                    <Border Width="32" Height="4" CornerRadius="2" Background="{StaticResource LineStrong}" HorizontalAlignment="Center"
-                            Margin="0,0,8,8" ToolTip="Потяните, чтобы переместить окно"/>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <DockPanel Background="Transparent" ToolTip="{Binding Status}">
-                            <!-- Tally: lit red while RedCast listens or records; the ring means the interviewer is speaking -->
-                            <Grid DockPanel.Dock="Left" Width="16" Height="16" VerticalAlignment="Center" Margin="0,0,8,0">
-                                <Ellipse x:Name="StatusRing" Width="16" Height="16" Stroke="{StaticResource AccentSoft}" StrokeThickness="2" Visibility="Collapsed"/>
-                                <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="{StaticResource Idle}"/>
-                            </Grid>
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="{Binding Status}" FontWeight="Medium" FontSize="13" TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Text="{Binding ModelStatus}" FontSize="12" Foreground="{StaticResource Fg3}" TextTrimming="CharacterEllipsis"/>
-                            </StackPanel>
-                        </DockPanel>
-                        <Border Grid.Column="1" Style="{StaticResource Segmented}" VerticalAlignment="Center" Margin="8,0">
-                            <StackPanel Orientation="Horizontal">
-                                <Button x:Name="TabHints" Style="{StaticResource SegBtn}" Content="Подсказки" Click="TabHints_Click"/>
-                                <Button x:Name="TabSettings" Style="{StaticResource SegBtn}" Content="Настройки" Click="TabSettings_Click"/>
-                            </StackPanel>
-                        </Border>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button Style="{StaticResource IconBtn}" Content="&#xE921;" FontSize="12" ToolTip="Свернуть в полоску" Click="Compact_Click"/>
-                            <Button Style="{StaticResource IconBtn}" Content="&#xE8BB;" FontSize="12" ToolTip="Скрыть окно (вернуть — значок в трее)" Click="Hide_Click"/>
-                        </StackPanel>
+                <!-- Header: the whole empty area moves the window, double click folds it into a strip -->
+                <Grid DockPanel.Dock="Top" Height="50" Background="Transparent" MouseLeftButtonDown="Header_MouseDown">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <!-- Tally: lit red with a slow pulse while RedCast listens or records -->
+                    <Grid Width="22" Height="22" Margin="10,0,6,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                        <Ellipse x:Name="StatusPulse" Width="22" Height="22" Fill="{StaticResource AccentLine}" Opacity="0" RenderTransformOrigin="0.5,0.5">
+                            <Ellipse.RenderTransform><ScaleTransform/></Ellipse.RenderTransform>
+                        </Ellipse>
+                        <Ellipse x:Name="StatusDot" Width="9" Height="9" Fill="{StaticResource Idle}"/>
                     </Grid>
-                    <ProgressBar Margin="0,12,8,0" Minimum="0" Maximum="100" Value="{Binding ModelProgress}"
-                                 Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVis}}"/>
-                    <!-- Error banner -->
-                    <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource WarningLine}" BorderThickness="1"
-                            CornerRadius="10" Padding="12,8,4,8" Margin="0,12,8,0"
-                            Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}">
-                        <DockPanel>
-                            <TextBlock DockPanel.Dock="Left" Text="&#xE7BA;" Style="{StaticResource Icon}" Foreground="{StaticResource Warning}"
-                                       VerticalAlignment="Top" Margin="0,2,12,0"/>
-                            <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Content="&#xE8BB;" FontSize="10" Width="28" Height="28" MinHeight="28"
-                                    Click="DismissError_Click" VerticalAlignment="Top" ToolTip="Закрыть"/>
-                            <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" FontSize="13" LineHeight="20" VerticalAlignment="Center"/>
-                        </DockPanel>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" IsHitTestVisible="False">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="PhaseText" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock x:Name="PhaseTimer" FontWeight="Medium" FontSize="12" Foreground="{StaticResource Accent}" Margin="6,0,0,0"
+                                       Typography.NumeralAlignment="Tabular" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock x:Name="SubtitleText" FontSize="11" Foreground="{StaticResource Fg3}" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                    <!-- Console meters: the call and the microphone -->
+                    <Border x:Name="Meters" Grid.Column="2" CornerRadius="12" Background="{StaticResource BgDeep}" Padding="8,0" Height="24"
+                            Margin="6,0" VerticalAlignment="Center" IsHitTestVisible="False" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="&#xE7F6;" Style="{StaticResource Icon}" FontSize="10" Foreground="{StaticResource Fg2}" Margin="0,0,4,0"/>
+                            <StackPanel x:Name="SysMeter" Orientation="Horizontal" VerticalAlignment="Bottom" Margin="0,0,0,6"/>
+                            <TextBlock Text="&#xE720;" Style="{StaticResource Icon}" FontSize="10" Foreground="{StaticResource Fg2}" Margin="10,0,4,0"/>
+                            <StackPanel x:Name="MicMeter" Orientation="Horizontal" VerticalAlignment="Bottom" Margin="0,0,0,6"/>
+                        </StackPanel>
                     </Border>
-                </StackPanel>
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
+                        <Button x:Name="SettingsButton" Style="{StaticResource IconBtn}" Content="&#xE713;" ToolTip="Настройки" Click="TabSettings_Click"/>
+                        <Button Style="{StaticResource IconBtn}" Content="&#xE921;" FontSize="12" ToolTip="Свернуть в полоску (двойной клик по шапке)" Click="Compact_Click"/>
+                        <Button Style="{StaticResource IconBtn}" Content="&#xE8BB;" FontSize="11" ToolTip="Скрыть окно (вернуть — значок в трее)" Click="Hide_Click"/>
+                    </StackPanel>
+                    <Border Grid.ColumnSpan="4" Height="1" VerticalAlignment="Bottom" Background="{StaticResource Line}"/>
+                    <ProgressBar Grid.ColumnSpan="4" Height="2" VerticalAlignment="Bottom" Margin="12,0" Minimum="0" Maximum="100"
+                                 Value="{Binding ModelProgress}" Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVis}}"/>
+                </Grid>
+
+                <!-- Error banner -->
+                <Border DockPanel.Dock="Top" Background="{StaticResource Surface}" BorderBrush="{StaticResource WarningLine}" BorderThickness="1"
+                        CornerRadius="11" Padding="12,8,4,8" Margin="12,10,12,0"
+                        Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Left" Text="&#xE7BA;" Style="{StaticResource Icon}" FontSize="14" Foreground="{StaticResource Warning}"
+                                   VerticalAlignment="Top" Margin="0,2,10,0"/>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Content="&#xE8BB;" FontSize="9" Width="24" Height="24" MinHeight="24"
+                                Click="DismissError_Click" VerticalAlignment="Top" ToolTip="Закрыть"/>
+                        <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" FontSize="12.5" LineHeight="19" VerticalAlignment="Center"/>
+                    </DockPanel>
+                </Border>
 
                 <Grid>
-                <!-- ===== Hints tab ===== -->
+                <!-- ===== Hints ===== -->
                 <Grid x:Name="HintsView">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <StackPanel Margin="16,0,16,16" Background="Transparent" MouseLeftButtonDown="Drag">
-                        <!-- Update available -->
-                        <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1"
-                                CornerRadius="10" Padding="12,8,8,8" Margin="0,0,0,12"
-                                Visibility="{Binding HasUpdate, Converter={StaticResource BoolToVis}}">
-                            <DockPanel>
-                                <Ellipse DockPanel.Dock="Left" Width="8" Height="8" Fill="{StaticResource Positive}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                                <Button DockPanel.Dock="Right" Style="{StaticResource PrimaryBtn}" Content="Обновить" Click="InstallUpdate_Click"
-                                        IsEnabled="{Binding NotUpdating}"/>
-                                <TextBlock VerticalAlignment="Center" FontSize="13" TextTrimming="CharacterEllipsis" Margin="0,0,12,0"
-                                           Text="{Binding UpdateStatus}"/>
-                            </DockPanel>
-                        </Border>
+                    <!-- Update available -->
+                    <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1"
+                            CornerRadius="11" Padding="12,6,6,6" Margin="12,10,12,0"
+                            Visibility="{Binding HasUpdate, Converter={StaticResource BoolToVis}}">
                         <DockPanel>
-                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                                <Button Style="{StaticResource Btn}" Click="Screenshot_Click" ToolTip="Решить задачу с экрана" Margin="0,0,4,0">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="&#xE722;" Style="{StaticResource Icon}" Foreground="{StaticResource Fg2}" Margin="0,0,8,0"/>
-                                        <TextBlock Text="Скриншот" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Style="{StaticResource IconBtn}" Content="&#xE74D;" Click="Clear_Click" ToolTip="Очистить подсказки и расшифровку"/>
-                            </StackPanel>
-                            <Border Style="{StaticResource Segmented}" HorizontalAlignment="Left">
-                                <StackPanel Orientation="Horizontal">
-                                    <Button x:Name="ModeAuto" Style="{StaticResource SegBtn}" Content="Авто" Click="ModeAuto_Click"
-                                            ToolTip="RedCast сам слышит вопросы интервьюера и отвечает"/>
-                                    <Button x:Name="ModeManual" Style="{StaticResource SegBtn}" Content="По кнопкам" Click="ModeManual_Click"
-                                            ToolTip="Вы сами отмечаете начало и конец вопроса двумя кнопками"/>
-                                </StackPanel>
-                            </Border>
+                            <Ellipse DockPanel.Dock="Left" Width="7" Height="7" Fill="{StaticResource Positive}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource PrimaryBtn}" Content="Обновить" Click="InstallUpdate_Click"
+                                    Height="26" MinHeight="26" Padding="12,0" FontSize="12" IsEnabled="{Binding NotUpdating}"/>
+                            <TextBlock VerticalAlignment="Center" FontSize="12.5" TextTrimming="CharacterEllipsis" Margin="0,0,10,0"
+                                       Text="{Binding UpdateStatus}"/>
                         </DockPanel>
-                        <Grid Margin="0,12,0,0">
+                    </Border>
+
+                    <ScrollViewer x:Name="AnswersScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="12,12,6,0">
+                        <StackPanel Margin="0,0,6,6">
+                            <!-- Readiness checklist (empty state) -->
+                            <StackPanel x:Name="ReadinessPanel">
+                                <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="12">
+                                    <StackPanel>
+                                        <DockPanel Margin="12,9">
+                                            <TextBlock x:Name="SpeechIcon" DockPanel.Dock="Left" Style="{StaticResource Icon}" FontSize="15" Width="20" Margin="0,0,10,0"/>
+                                            <Button x:Name="SpeechAction" DockPanel.Dock="Right" Style="{StaticResource Btn}" Height="24" MinHeight="24" Padding="9,0"
+                                                    FontSize="11.5" Content="Перезагрузить" Click="ReloadModel_Click" VerticalAlignment="Center"/>
+                                            <StackPanel>
+                                                <TextBlock Text="Распознавание речи" FontWeight="Medium"/>
+                                                <TextBlock x:Name="SpeechDetail" FontSize="11.5" Foreground="{StaticResource Fg3}" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <Border Height="1" Background="{StaticResource Line}" Margin="42,0,0,0"/>
+                                        <DockPanel Margin="12,9">
+                                            <TextBlock x:Name="AiIcon" DockPanel.Dock="Left" Style="{StaticResource Icon}" FontSize="15" Width="20" Margin="0,0,10,0"/>
+                                            <Button x:Name="AiAction" DockPanel.Dock="Right" Style="{StaticResource Btn}" Height="24" MinHeight="24" Padding="9,0"
+                                                    FontSize="11.5" Click="AiAction_Click" VerticalAlignment="Center"/>
+                                            <StackPanel>
+                                                <TextBlock Text="Модель ИИ" FontWeight="Medium"/>
+                                                <TextBlock x:Name="AiDetail" FontSize="11.5" Foreground="{StaticResource Fg3}" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <Border Height="1" Background="{StaticResource Line}" Margin="42,0,0,0"/>
+                                        <DockPanel Margin="12,9">
+                                            <TextBlock Text="&#xE73E;" DockPanel.Dock="Left" Style="{StaticResource Icon}" FontSize="15" Width="20" Margin="0,0,10,0"
+                                                       Foreground="{StaticResource Positive}"/>
+                                            <StackPanel>
+                                                <TextBlock Text="Звук созвона и микрофон" FontWeight="Medium"/>
+                                                <TextBlock FontSize="11.5" Foreground="{StaticResource Fg3}" TextWrapping="Wrap"
+                                                           Text="Звук системы — без драйверов. Микрофон проверьте в настройках → «Речь»."/>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock x:Name="HowToTitle" FontWeight="SemiBold" Margin="4,16,0,10"/>
+                                <StackPanel x:Name="HowToPanel" Margin="4,0,0,0"/>
+                                <TextBlock Margin="4,6,0,12" FontSize="11.5" Foreground="{StaticResource Fg3}" TextWrapping="Wrap"
+                                           Text="Окно не видно собеседнику при демонстрации экрана. Перетаскивайте его за шапку, размер — за края."/>
+                            </StackPanel>
+                            <ItemsControl ItemsSource="{Binding Answers}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border x:Name="Card" Background="{StaticResource SurfaceDim}" BorderBrush="{StaticResource Line}" BorderThickness="1"
+                                                CornerRadius="12" Padding="14,10" Margin="0,0,0,8">
+                                            <Grid>
+                                                <!-- On-air rule: the answer being read right now -->
+                                                <Border Width="3" CornerRadius="1.5" Background="{StaticResource Accent}" HorizontalAlignment="Left"
+                                                        Margin="-14,6,0,6" Visibility="{Binding IsCurrent, Converter={StaticResource BoolToVis}}"/>
+                                                <StackPanel>
+                                                    <DockPanel Background="Transparent" Cursor="Hand"
+                                                               MouseLeftButtonUp="AnswerHeader_Click" ToolTip="Свернуть или развернуть ответ">
+                                                        <TextBlock DockPanel.Dock="Left" Text="{Binding Chevron}" Style="{StaticResource Icon}" FontSize="9"
+                                                                   Foreground="{StaticResource Fg3}" Margin="0,4,8,0" VerticalAlignment="Top"/>
+                                                        <TextBlock Text="{Binding Question}" TextWrapping="Wrap" FontSize="12.5" LineHeight="19"
+                                                                   Foreground="{StaticResource Fg2}" MaxHeight="76" TextTrimming="CharacterEllipsis"/>
+                                                    </DockPanel>
+                                                    <ProgressBar IsIndeterminate="True" Height="2" Margin="17,10,0,4"
+                                                                 Visibility="{Binding ShowSpinner, Converter={StaticResource BoolToVis}}"/>
+                                                    <TextBlock Text="{Binding Preview}" FontWeight="Medium" FontSize="13" TextTrimming="CharacterEllipsis" Margin="17,3,0,0"
+                                                               Visibility="{Binding IsExpanded, Converter={StaticResource InvBoolToVis}}"/>
+                                                    <StackPanel Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
+                                                        <ContentControl ui:Markdown.Text="{Binding Text}" Foreground="{StaticResource Fg}" Margin="0,8,0,0"/>
+                                                        <TextBlock Text="{Binding Error}" Foreground="{StaticResource Negative}" TextWrapping="Wrap" FontSize="12.5" Margin="0,8,0,0"
+                                                                   Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}"/>
+                                                        <DockPanel Margin="0,8,0,0" Visibility="{Binding HasLatency, Converter={StaticResource BoolToVis}}">
+                                                            <Button DockPanel.Dock="Right" Style="{StaticResource GhostBtn}" Content="Копировать" FontSize="11"
+                                                                    Height="22" MinHeight="22" Padding="6,0" Click="CopyAnswer_Click"
+                                                                    Visibility="{Binding CanCopy, Converter={StaticResource BoolToVis}}"/>
+                                                            <TextBlock Text="{Binding Latency}" FontSize="11" Foreground="{StaticResource Fg3}" VerticalAlignment="Center"
+                                                                       Typography.NumeralAlignment="Tabular" ToolTip="Распознавание после конца вопроса · первые слова ответа"/>
+                                                        </DockPanel>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                                <Setter TargetName="Card" Property="Background" Value="{StaticResource Surface}"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Transcript drawer -->
+                    <StackPanel Grid.Row="2">
+                        <Border Height="1" Background="{StaticResource Line}"/>
+                        <Button x:Name="TranscriptToggle" Style="{StaticResource GhostBtn}" HorizontalContentAlignment="Stretch"
+                                Height="28" MinHeight="28" Padding="14,0" Click="TranscriptToggle_Click">
+                            <DockPanel>
+                                <Ellipse x:Name="LiveDot" DockPanel.Dock="Right" Width="5" Height="5" Fill="{StaticResource Accent}" Visibility="Collapsed"/>
+                                <TextBlock x:Name="TranscriptChevron" DockPanel.Dock="Left" Style="{StaticResource Icon}" FontSize="9" Margin="0,0,8,0"/>
+                                <TextBlock Text="Расшифровка" DockPanel.Dock="Left" FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="TranscriptPreview" FontSize="11.5" Foreground="{StaticResource Fg3}" Margin="8,0" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </DockPanel>
+                        </Button>
+                        <ScrollViewer x:Name="TranscriptScroll" Height="92" VerticalScrollBarVisibility="Auto" Padding="14,0,6,8">
+                            <StackPanel Margin="0,0,8,0">
+                                <TextBlock x:Name="TranscriptEmpty" FontSize="12" Foreground="{StaticResource Fg3}" Text="Здесь появится текст разговора"/>
+                                <ItemsControl ItemsSource="{Binding Entries}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock TextWrapping="Wrap" FontSize="12.5" LineHeight="19" Margin="0,0,0,4" Foreground="{StaticResource Fg2}">
+                                                <Run Text="{Binding Label, Mode=OneWay}" FontWeight="SemiBold" Foreground="{Binding IsInterviewer, Mode=OneWay, Converter={StaticResource SpeakerBrush}}"/><Run Text="{Binding Text, Mode=OneWay}"/><Run Text="{Binding RecognitionLabel, Mode=OneWay}" Foreground="{StaticResource Fg3}" FontSize="11.5" Typography.NumeralAlignment="Tabular" ToolTip="Время распознавания после конца фразы"/>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock TextWrapping="Wrap" FontSize="12.5" LineHeight="19" Foreground="{StaticResource Fg3}"
+                                           Visibility="{Binding PartialInterviewer, Converter={StaticResource TextToVis}}">
+                                    <Run Text="Интервьюер  " FontWeight="SemiBold" Foreground="{StaticResource AccentLine}"/><Run Text="{Binding PartialInterviewer, Mode=OneWay}"/>
+                                </TextBlock>
+                                <TextBlock TextWrapping="Wrap" FontSize="12.5" LineHeight="19" Foreground="{StaticResource Fg3}"
+                                           Visibility="{Binding PartialMe, Converter={StaticResource TextToVis}}">
+                                    <Run Text="Я  " FontWeight="SemiBold"/><Run Text="{Binding PartialMe, Mode=OneWay}"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </StackPanel>
+
+                    <!-- Control dock: empty space moves the window -->
+                    <Border Grid.Row="3" Background="{StaticResource BgDeep}" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0"
+                            CornerRadius="0,0,14,14" Padding="10" MouseLeftButtonDown="Drag">
+                        <StackPanel>
                             <!-- Auto -->
-                            <StackPanel x:Name="AutoButtons" Orientation="Horizontal">
-                                <Button x:Name="StartButton" Style="{StaticResource PrimaryBtn}" FontSize="14" Height="40" Padding="20,0" MinWidth="120" Click="Start_Click"/>
-                                <Button Style="{StaticResource Btn}" Height="40" Padding="16,0" Margin="8,0,0,0" Click="Answer_Click" ToolTip="Не ждать паузы">
+                            <Grid x:Name="AutoButtons">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition/>
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="StartButton" Style="{StaticResource PrimaryBtn}" FontSize="13.5" Height="44" Click="Start_Click"/>
+                                <Button Grid.Column="2" Style="{StaticResource Btn}" Height="44" Click="Answer_Click" ToolTip="Не ждать паузы">
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="&#xE945;" Style="{StaticResource Icon}" Foreground="{StaticResource Fg2}" Margin="0,0,8,0"/>
-                                        <TextBlock Text="Ответить сейчас" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBlock Text="&#xE945;" Style="{StaticResource Icon}" FontSize="14" Foreground="{StaticResource Warning}" Margin="0,0,8,0"/>
+                                        <TextBlock Text="Ответить сейчас" FontSize="13.5" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
-                            </StackPanel>
+                            </Grid>
                             <!-- Manual -->
                             <Grid x:Name="ManualButtons" Visibility="Collapsed">
                                 <Grid.ColumnDefinitions>
@@ -155,245 +279,304 @@
                                     <ColumnDefinition Width="8"/>
                                     <ColumnDefinition/>
                                 </Grid.ColumnDefinitions>
-                                <Button x:Name="RecIButton" Style="{StaticResource Btn}" Height="56" Padding="12,0" Click="RecI_Click"
-                                        ToolTip="Нажмите, когда интервьюер начал вопрос, и ещё раз — когда закончил"/>
-                                <Button x:Name="RecMeButton" Grid.Column="2" Style="{StaticResource Btn}" Height="56" Padding="12,0" Click="RecMe_Click"
-                                        ToolTip="Нажмите и говорите (например, повторите вопрос), нажмите ещё раз — получите подсказку"/>
+                                <Button x:Name="RecIButton" Style="{StaticResource Btn}" Height="58" Padding="12,0" HorizontalContentAlignment="Stretch"
+                                        Click="RecI_Click" ToolTip="Нажмите, когда интервьюер начал вопрос, и ещё раз — когда закончил"/>
+                                <Button x:Name="RecMeButton" Grid.Column="2" Style="{StaticResource Btn}" Height="58" Padding="12,0" HorizontalContentAlignment="Stretch"
+                                        Click="RecMe_Click" ToolTip="Нажмите и говорите (например, повторите вопрос), нажмите ещё раз — получите подсказку"/>
                             </Grid>
-                        </Grid>
-                    </StackPanel>
-
-                    <ScrollViewer x:Name="AnswersScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="16,0,8,0">
-                        <StackPanel Margin="0,0,8,0">
-                            <TextBlock x:Name="EmptyHint" TextWrapping="Wrap" Foreground="{StaticResource Fg2}" FontSize="13" LineHeight="20" Margin="0,4,0,0"/>
-                            <ItemsControl ItemsSource="{Binding Answers}" Margin="0,0,0,16">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1"
-                                                CornerRadius="12" Padding="16,12" Margin="0,0,0,8">
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                </Grid.ColumnDefinitions>
-                                                <!-- On-air rule: the answer being read right now -->
-                                                <Border Width="2" CornerRadius="1" Background="{StaticResource Accent}" Margin="0,4,12,4"
-                                                        Visibility="{Binding IsCurrent, Converter={StaticResource BoolToVis}}"/>
-                                                <StackPanel Grid.Column="1">
-                                                    <DockPanel Background="Transparent" Cursor="Hand"
-                                                               MouseLeftButtonUp="AnswerHeader_Click" ToolTip="Свернуть или развернуть ответ">
-                                                        <TextBlock DockPanel.Dock="Left" Text="{Binding Chevron}" Style="{StaticResource Icon}" FontSize="10"
-                                                                   Foreground="{StaticResource Fg3}" Margin="0,4,8,0" VerticalAlignment="Top"/>
-                                                        <TextBlock DockPanel.Dock="Right" Text="{Binding Latency}" FontSize="12" Typography.NumeralAlignment="Tabular"
-                                                                   Foreground="{StaticResource Fg3}" Margin="12,1,0,0" VerticalAlignment="Top"/>
-                                                        <TextBlock Text="{Binding Question}" TextWrapping="Wrap" FontSize="13" LineHeight="20"
-                                                                   Foreground="{StaticResource Fg2}" MaxHeight="40" TextTrimming="CharacterEllipsis"/>
-                                                    </DockPanel>
-                                                    <ProgressBar IsIndeterminate="True" Height="2" Margin="0,8,0,0"
-                                                                 Visibility="{Binding ShowSpinner, Converter={StaticResource BoolToVis}}"/>
-                                                    <TextBlock Text="{Binding Preview}" FontWeight="Medium" FontSize="14" TextTrimming="CharacterEllipsis" Margin="0,4,0,0"
-                                                               Visibility="{Binding IsExpanded, Converter={StaticResource InvBoolToVis}}"/>
-                                                    <ContentControl ui:Markdown.Text="{Binding Text}" Foreground="{StaticResource Fg}" Margin="0,8,0,0"
-                                                                    Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}"/>
-                                                    <TextBlock Text="{Binding Error}" Foreground="{StaticResource Negative}" TextWrapping="Wrap" FontSize="13" Margin="0,8,0,0"
-                                                               Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}"/>
-                                                </StackPanel>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                            <DockPanel Margin="0,8,0,0">
+                                <Border DockPanel.Dock="Left" Style="{StaticResource Segmented}" VerticalAlignment="Center"
+                                        ToolTip="Авто — слушает всё и отвечает сам. По кнопкам — вы отмечаете начало и конец вопроса.">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button x:Name="ModeAuto" Style="{StaticResource SegBtn}" Height="24" MinHeight="24" Content="Авто" Click="ModeAuto_Click"/>
+                                        <Button x:Name="ModeManual" Style="{StaticResource SegBtn}" Height="24" MinHeight="24" Content="По кнопкам" Click="ModeManual_Click"/>
+                                    </StackPanel>
+                                </Border>
+                                <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Content="&#xE74D;" FontSize="13" Click="Clear_Click"
+                                        ToolTip="Очистить подсказки и расшифровку"/>
+                                <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Content="&#xE722;" Click="Screenshot_Click"
+                                        ToolTip="Решить задачу с экрана"/>
+                                <TextBox x:Name="ManualInput" KeyDown="ManualInput_KeyDown" Background="{StaticResource Surface}" Height="30" MinHeight="30"
+                                         Margin="6,0" Tag="Спросить текстом… (Enter)"/>
+                            </DockPanel>
                         </StackPanel>
-                    </ScrollViewer>
-
-                    <Button Grid.Row="2" x:Name="TranscriptToggle" Style="{StaticResource GhostBtn}" HorizontalAlignment="Left"
-                            Margin="8,0,0,4" Padding="8,0" FontSize="12" Click="TranscriptToggle_Click"/>
-                    <ScrollViewer Grid.Row="3" x:Name="TranscriptScroll" Height="120" VerticalScrollBarVisibility="Auto" Padding="16,0,8,8">
-                        <StackPanel Margin="0,0,8,0">
-                            <ItemsControl ItemsSource="{Binding Entries}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock TextWrapping="Wrap" FontSize="13" LineHeight="20" Margin="0,0,0,4" Foreground="{StaticResource Fg2}">
-                                            <Run Text="{Binding Label, Mode=OneWay}" FontWeight="Medium" Foreground="{Binding IsInterviewer, Mode=OneWay, Converter={StaticResource SpeakerBrush}}"/><Run Text="{Binding Text, Mode=OneWay}"/><Run Text="{Binding RecognitionLabel, Mode=OneWay}" Foreground="{StaticResource Fg3}" FontSize="12" Typography.NumeralAlignment="Tabular" ToolTip="Время распознавания после конца фразы"/>
-                                        </TextBlock>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <TextBlock TextWrapping="Wrap" FontSize="13" LineHeight="20" Foreground="{StaticResource Fg3}"
-                                       Visibility="{Binding PartialInterviewer, Converter={StaticResource TextToVis}}">
-                                <Run Text="Интервьюер: " FontWeight="Medium"/><Run Text="{Binding PartialInterviewer, Mode=OneWay}"/>
-                            </TextBlock>
-                            <TextBlock TextWrapping="Wrap" FontSize="13" LineHeight="20" Foreground="{StaticResource Fg3}"
-                                       Visibility="{Binding PartialMe, Converter={StaticResource TextToVis}}">
-                                <Run Text="Я: " FontWeight="Medium"/><Run Text="{Binding PartialMe, Mode=OneWay}"/>
-                            </TextBlock>
-                        </StackPanel>
-                    </ScrollViewer>
-                    <Border Grid.Row="4" Background="{StaticResource BgDeep}" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0"
-                            CornerRadius="0,0,12,12" Padding="16,12,32,12">
-                        <TextBox x:Name="ManualInput" KeyDown="ManualInput_KeyDown" Background="{StaticResource Surface}" Height="32"
-                                 Tag="Вопрос текстом — Enter"/>
                     </Border>
                 </Grid>
 
-                <!-- ===== Settings tab ===== -->
-                <ScrollViewer x:Name="SettingsView" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
-                    <StackPanel Margin="16,0,8,32">
-                        <TextBlock Style="{StaticResource H}" Text="1. Подключение модели" Margin="0,4,0,12"/>
-                        <ComboBox ItemsSource="{x:Static core:Catalog.Backends}" SelectedValuePath="Id" DisplayMemberPath="Title"
-                                  SelectedValue="{Binding Settings.Backend}" SelectionChanged="Backend_Changed"/>
-                        <StackPanel x:Name="ApiPanel">
-                            <TextBlock Style="{StaticResource Label}" Text="API-ключ (sk-ant-…)"/>
-                            <PasswordBox x:Name="ApiKeyBox" PasswordChanged="ApiKey_Changed"/>
-                            <TextBlock Style="{StaticResource Hint}" Text="Ключ: platform.claude.com → API Keys. Оплата по факту, отдельно от подписки. Хранится зашифрованным в вашей учётной записи Windows."/>
-                            <CheckBox Content="Fast mode: ещё быстрее вывод (только Opus 5.5, цена ×2)" IsChecked="{Binding Settings.FastMode}"/>
-                        </StackPanel>
-                        <StackPanel x:Name="CliPanel">
-                            <TextBlock Style="{StaticResource Label}" Text="Путь к claude.exe (пусто — найти автоматически)"/>
-                            <TextBox Text="{Binding Settings.ClaudePath, UpdateSourceTrigger=PropertyChanged}" Height="32"/>
-                            <TextBlock Style="{StaticResource Hint}" Text="Один раз в PowerShell: claude → /login. Расходует лимит вашей подписки."/>
-                        </StackPanel>
-                        <!-- ChatGPT, Grok, Gemini, OpenRouter, DeepSeek, Mistral, Groq, Ollama, LM Studio -->
-                        <StackPanel x:Name="ProviderPanel">
-                            <StackPanel x:Name="ProviderKeyPanel">
-                                <TextBlock Style="{StaticResource Label}" Text="API-ключ"/>
-                                <PasswordBox x:Name="ProviderKeyBox" PasswordChanged="ProviderKey_Changed"/>
-                            </StackPanel>
-                            <TextBlock x:Name="ProviderHint" Style="{StaticResource Hint}"/>
-                            <StackPanel x:Name="ProviderUrlPanel">
-                                <TextBlock Style="{StaticResource Label}" Text="Адрес сервера"/>
-                                <TextBox Text="{Binding Settings.ProviderUrl, UpdateSourceTrigger=LostFocus}" FontFamily="{StaticResource MonoFont}" Height="32"/>
-                            </StackPanel>
-                            <TextBlock Style="{StaticResource Label}" Text="Модель"/>
-                            <DockPanel>
-                                <Button x:Name="ProviderModelsButton" DockPanel.Dock="Right" Style="{StaticResource Btn}" Margin="8,0,0,0"
-                                        Click="ProviderModels_Click" ToolTip="Загрузить модели, доступные по этому ключу">
+                <!-- ===== Settings ===== -->
+                <Grid x:Name="SettingsView" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Border BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="8">
+                        <WrapPanel>
+                            <Button Style="{StaticResource IconBtn}" Content="&#xE72B;" FontSize="12" Width="28" Height="28" MinHeight="28"
+                                    ToolTip="К подсказкам" Click="TabHints_Click" Margin="0,0,2,0"/>
+                            <Button x:Name="ChipModel" Style="{StaticResource SegBtn}" Height="28" MinHeight="28" Content="ИИ" Click="Chip_Click" Tag="on"/>
+                            <Button x:Name="ChipSpeech" Style="{StaticResource SegBtn}" Height="28" MinHeight="28" Content="Речь" Click="Chip_Click"/>
+                            <Button x:Name="ChipAnswers" Style="{StaticResource SegBtn}" Height="28" MinHeight="28" Content="Ответы" Click="Chip_Click"/>
+                            <Button x:Name="ChipWindow" Style="{StaticResource SegBtn}" Height="28" MinHeight="28" Content="Окно" Click="Chip_Click"/>
+                            <Button x:Name="ChipKeys" Style="{StaticResource SegBtn}" Height="28" MinHeight="28" Content="Клавиши" Click="Chip_Click"/>
+                            <Button x:Name="ChipAbout" Style="{StaticResource SegBtn}" Height="28" MinHeight="28" Content="О программе" Click="Chip_Click"/>
+                        </WrapPanel>
+                    </Border>
+                    <ScrollViewer x:Name="SettingsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="12,12,6,0">
+                        <Grid Margin="0,0,6,16">
+                            <!-- ИИ -->
+                            <StackPanel x:Name="SecModel">
+                                <TextBlock Style="{StaticResource Caption}" Text="ПОДКЛЮЧЕНИЕ"/>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <ComboBox ItemsSource="{x:Static core:Catalog.Backends}" SelectedValuePath="Id" DisplayMemberPath="Title"
+                                                  SelectedValue="{Binding Settings.Backend}" SelectionChanged="Backend_Changed"/>
+                                        <StackPanel x:Name="ApiPanel">
+                                            <TextBlock Style="{StaticResource Label}" Text="API-ключ (sk-ant-…)"/>
+                                            <PasswordBox x:Name="ApiKeyBox" PasswordChanged="ApiKey_Changed"/>
+                                            <TextBlock Style="{StaticResource Hint}" Text="platform.claude.com → API Keys. Оплата по факту, отдельно от подписки. Хранится зашифрованным в вашей учётной записи Windows."/>
+                                            <CheckBox Content="Fast mode: вывод до 2,5× быстрее (только Opus 5.5, цена ×2)" IsChecked="{Binding Settings.FastMode}"/>
+                                        </StackPanel>
+                                        <StackPanel x:Name="CliPanel">
+                                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                                <TextBlock x:Name="CliIcon" Style="{StaticResource Icon}" FontSize="14" Margin="0,0,8,0"/>
+                                                <TextBlock x:Name="CliStatus" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <TextBlock Style="{StaticResource Label}" Text="Путь к claude.exe (пусто — найти автоматически)"/>
+                                            <TextBox Text="{Binding Settings.ClaudePath, UpdateSourceTrigger=PropertyChanged}" Height="30" FontFamily="{StaticResource MonoFont}"/>
+                                            <TextBlock Style="{StaticResource Hint}" Text="Один раз в PowerShell: claude → /login. Расходует лимит подписки Pro/Max. RedCast держит Claude Code заранее запущенным, чтобы ответ начинался сразу."/>
+                                        </StackPanel>
+                                        <!-- ChatGPT, Grok, Gemini, OpenRouter, DeepSeek, Mistral, Groq, Ollama, LM Studio -->
+                                        <StackPanel x:Name="ProviderPanel">
+                                            <StackPanel x:Name="ProviderKeyPanel">
+                                                <TextBlock Style="{StaticResource Label}" Text="API-ключ"/>
+                                                <PasswordBox x:Name="ProviderKeyBox" PasswordChanged="ProviderKey_Changed"/>
+                                            </StackPanel>
+                                            <TextBlock x:Name="ProviderHint" Style="{StaticResource Hint}"/>
+                                            <StackPanel x:Name="ProviderUrlPanel">
+                                                <TextBlock Style="{StaticResource Label}" Text="Адрес сервера"/>
+                                                <TextBox Text="{Binding Settings.ProviderUrl, UpdateSourceTrigger=LostFocus}" FontFamily="{StaticResource MonoFont}" Height="30"/>
+                                            </StackPanel>
+                                            <TextBlock Style="{StaticResource Label}" Text="Модель"/>
+                                            <DockPanel>
+                                                <Button x:Name="ProviderModelsButton" DockPanel.Dock="Right" Style="{StaticResource Btn}" Margin="8,0,0,0" Height="30" MinHeight="30"
+                                                        Click="ProviderModels_Click" ToolTip="Загрузить модели, доступные по этому ключу">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="Список моделей" VerticalAlignment="Center"/>
+                                                        <TextBlock Text="&#xE70D;" Style="{StaticResource Icon}" FontSize="10" Foreground="{StaticResource Fg3}" Margin="8,0,0,0"/>
+                                                    </StackPanel>
+                                                </Button>
+                                                <TextBox Text="{Binding Settings.ProviderModel, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" Height="30"
+                                                         Tag="ID модели"/>
+                                            </DockPanel>
+                                            <TextBlock Style="{StaticResource Hint}" Text="Для задач со скриншота нужна модель, которая понимает изображения. Для скорости берите «быстрые» версии (flash, mini, turbo)."/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <StackPanel x:Name="ClaudeModelPanel">
+                                    <TextBlock Style="{StaticResource Caption}" Text="МОДЕЛЬ"/>
+                                    <Border Style="{StaticResource Card}" Padding="6">
+                                        <StackPanel x:Name="ModelRows"/>
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource Caption}" Text="ГЛУБИНА РАЗМЫШЛЕНИЙ"/>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <Border Style="{StaticResource Segmented}" HorizontalAlignment="Left">
+                                            <StackPanel x:Name="EffortRow" Orientation="Horizontal"/>
+                                        </Border>
+                                        <TextBlock Style="{StaticResource Hint}" Text="«Быстро» — ответ начинается сразу. Глубже — точнее на сложных задачах, но дольше."/>
+                                    </StackPanel>
+                                </Border>
+                                <Button Style="{StaticResource Btn}" HorizontalAlignment="Left" Click="TestConnection_Click">
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="Список моделей" VerticalAlignment="Center"/>
-                                        <TextBlock Text="&#xE70D;" Style="{StaticResource Icon}" FontSize="10" Foreground="{StaticResource Fg3}" Margin="8,0,0,0"/>
+                                        <TextBlock Text="&#xE945;" Style="{StaticResource Icon}" FontSize="13" Foreground="{StaticResource Fg2}" Margin="0,0,8,0"/>
+                                        <TextBlock Text="Проверить соединение" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
-                                <TextBox Text="{Binding Settings.ProviderModel, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" Height="32"
-                                         Tag="ID модели"/>
-                            </DockPanel>
-                            <TextBlock Style="{StaticResource Hint}" Text="Выберите модель из списка или впишите её ID. Для задач со скриншота нужна модель, которая понимает изображения."/>
-                        </StackPanel>
-                        <StackPanel x:Name="ClaudeModelPanel">
-                            <TextBlock Style="{StaticResource Label}" Text="Модель"/>
-                            <ComboBox ItemsSource="{x:Static core:Catalog.Models}" SelectedValuePath="Id" DisplayMemberPath="Title" SelectedValue="{Binding Settings.Model}"/>
-                        </StackPanel>
-                        <TextBlock Style="{StaticResource Label}" Text="Глубина размышлений"/>
-                        <ComboBox ItemsSource="{x:Static core:Catalog.Efforts}" SelectedValuePath="Id" DisplayMemberPath="Title" SelectedValue="{Binding Settings.Effort}"/>
-                        <Button Style="{StaticResource Btn}" Content="Проверить соединение" HorizontalAlignment="Left" Margin="0,16,0,0" Click="TestConnection_Click"/>
+                            </StackPanel>
 
-                        <TextBlock Style="{StaticResource H}" Text="2. Распознавание речи"/>
-                        <TextBlock Style="{StaticResource Label}" Text="Язык собеседования"/>
-                        <ComboBox ItemsSource="{x:Static core:Catalog.SpeechLanguages}" SelectedValuePath="Id" DisplayMemberPath="Title" SelectedValue="{Binding Settings.SpeechLanguage}"/>
-                        <TextBlock Style="{StaticResource Label}" Text="Модель распознавания"/>
-                        <ComboBox ItemsSource="{x:Static core:Catalog.WhisperModels}" SelectedValuePath="Id" DisplayMemberPath="Title" SelectedValue="{Binding Settings.WhisperModel}"/>
-                        <CheckBox Content="Использовать видеокарту (быстрее в 3–10 раз)" IsChecked="{Binding Settings.UseGpu}"/>
-                        <DockPanel Margin="0,12,0,0">
-                            <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Перезагрузить модель" Click="ReloadModel_Click" Margin="12,0,0,0"/>
-                            <TextBlock Text="{Binding ModelStatus}" Style="{StaticResource Hint}" Margin="0" VerticalAlignment="Center"/>
-                        </DockPanel>
-                        <TextBlock Style="{StaticResource Label}" Text="Словарь терминов (технологии, компании, имена)"/>
-                        <TextBox Text="{Binding Settings.Vocabulary, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
-                                 Height="64" VerticalContentAlignment="Top"/>
-                        <TextBlock Style="{StaticResource Label}" Text="{Binding Settings.SilenceMs, StringFormat='Пауза конца вопроса: {0:0} мс'}"/>
-                        <Slider Minimum="400" Maximum="1500" TickFrequency="50" IsSnapToTickEnabled="True" Value="{Binding Settings.SilenceMs}"/>
-                        <TextBlock Style="{StaticResource Hint}" Text="Меньше — быстрее подсказка, но вопрос чаще разбивается на части."/>
-                        <TextBlock Style="{StaticResource Label}" Text="Микрофон"/>
-                        <DockPanel>
-                            <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Content="&#xE72C;" Margin="4,0,0,0"
-                                    ToolTip="Обновить список (подключили наушники или USB-микрофон)" Click="RefreshMics_Click"/>
-                            <ComboBox x:Name="MicCombo" ItemsSource="{Binding MicDevices}" SelectedValuePath="Id" DisplayMemberPath="Title"
-                                      SelectedValue="{Binding Settings.MicDeviceId}" SelectionChanged="Mic_Changed"/>
-                        </DockPanel>
-                        <DockPanel Margin="0,8,0,0">
-                            <Button DockPanel.Dock="Left" Style="{StaticResource Btn}" Content="{Binding MicTestLabel}" Click="MicTest_Click" Margin="0,0,12,0"/>
-                            <ProgressBar Minimum="0" Maximum="100" Value="{Binding MicLevel}" VerticalAlignment="Center"
-                                         Foreground="{StaticResource Positive}"/>
-                        </DockPanel>
-                        <TextBlock Style="{StaticResource Hint}" Text="Нажмите «Проверить» и скажите что-нибудь: полоска должна двигаться. Если она стоит на месте, выберите другой микрофон."/>
-                        <CheckBox Content="Авто: отвечать на каждую реплику интервьюера" IsChecked="{Binding Settings.AutoAnswer}" Margin="0,16,0,0"/>
-                        <CheckBox Content="Авто: распознавать мой микрофон (чтобы понимать, что я уже ответил)" IsChecked="{Binding Settings.CaptureMic}"/>
-                        <TextBlock Style="{StaticResource Hint}" Text="Наденьте наушники — иначе микрофон слышит интервьюера из динамиков. Такие повторы RedCast отбрасывает, но с наушниками надёжнее всего."/>
+                            <!-- Речь -->
+                            <StackPanel x:Name="SecSpeech" Visibility="Collapsed">
+                                <TextBlock Style="{StaticResource Caption}" Text="РАСПОЗНАВАНИЕ"/>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource Label}" Margin="0,0,0,8" Text="Язык собеседования"/>
+                                        <ComboBox ItemsSource="{x:Static core:Catalog.SpeechLanguages}" SelectedValuePath="Id" DisplayMemberPath="Title" SelectedValue="{Binding Settings.SpeechLanguage}"/>
+                                        <TextBlock Style="{StaticResource Hint}" Text="«Русский и украинский» сам узнаёт язык каждой фразы и не путает их — рекомендуется."/>
+                                        <TextBlock Style="{StaticResource Label}" Text="Модель Whisper"/>
+                                        <ComboBox ItemsSource="{x:Static core:Catalog.WhisperModels}" SelectedValuePath="Id" DisplayMemberPath="Title" SelectedValue="{Binding Settings.WhisperModel}"/>
+                                        <CheckBox Content="Использовать видеокарту (быстрее в 3–10 раз)" IsChecked="{Binding Settings.UseGpu}"/>
+                                        <DockPanel Margin="0,12,0,0">
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Перезагрузить модель" Click="ReloadModel_Click"
+                                                    Height="28" MinHeight="28" FontSize="12" Margin="12,0,0,0"/>
+                                            <TextBlock Text="{Binding ModelStatus}" Style="{StaticResource Hint}" Margin="0" VerticalAlignment="Center"/>
+                                        </DockPanel>
+                                        <Border Height="1" Background="{StaticResource Line}" Margin="0,12,0,0"/>
+                                        <TextBlock Style="{StaticResource Label}" Text="Словарь терминов (стек, компании, имена)"/>
+                                        <TextBox Text="{Binding Settings.Vocabulary, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
+                                                 Height="58" VerticalContentAlignment="Top"/>
+                                        <TextBlock Style="{StaticResource Hint}" Text="Модель ИИ знает эти слова и понимает их, даже если распознавание записало их на слух («куборнетис»)."/>
+                                        <CheckBox Content="Точное написание терминов в расшифровке (чуть медленнее)" IsChecked="{Binding Settings.PreciseTerms}"/>
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Style="{StaticResource Caption}" Text="РЕЖИМ"/>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <Border Style="{StaticResource Segmented}" HorizontalAlignment="Left">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button x:Name="ModeAuto2" Style="{StaticResource SegBtn}" Content="Авто" Click="ModeAuto_Click"/>
+                                                <Button x:Name="ModeManual2" Style="{StaticResource SegBtn}" Content="По кнопкам" Click="ModeManual_Click"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <TextBlock x:Name="ModeHint" Style="{StaticResource Hint}"/>
+                                        <StackPanel x:Name="AutoOptions">
+                                            <CheckBox Content="Отвечать на каждую реплику интервьюера" IsChecked="{Binding Settings.AutoAnswer}"/>
+                                            <CheckBox Content="Слушать мой микрофон (чтобы понимать, что я уже ответил)" IsChecked="{Binding Settings.CaptureMic}"/>
+                                            <TextBlock Style="{StaticResource Label}" Text="{Binding Settings.SilenceMs, StringFormat='Пауза конца вопроса: {0:0} мс'}"/>
+                                            <Slider Minimum="400" Maximum="1500" TickFrequency="50" IsSnapToTickEnabled="True" Value="{Binding Settings.SilenceMs}"/>
+                                            <TextBlock Style="{StaticResource Hint}" Text="Меньше — подсказка раньше, но вопрос чаще делится на части."/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Style="{StaticResource Caption}" Text="МИКРОФОН"/>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Content="&#xE72C;" Margin="4,0,0,0"
+                                                    ToolTip="Обновить список (подключили наушники или USB-микрофон)" Click="RefreshMics_Click"/>
+                                            <ComboBox x:Name="MicCombo" ItemsSource="{Binding MicDevices}" SelectedValuePath="Id" DisplayMemberPath="Title"
+                                                      SelectedValue="{Binding Settings.MicDeviceId}" SelectionChanged="Mic_Changed"/>
+                                        </DockPanel>
+                                        <DockPanel Margin="0,10,0,0">
+                                            <Button DockPanel.Dock="Left" Style="{StaticResource Btn}" Content="{Binding MicTestLabel}" Click="MicTest_Click"
+                                                    Height="28" MinHeight="28" FontSize="12" Margin="0,0,12,0"/>
+                                            <ProgressBar Minimum="0" Maximum="100" Value="{Binding MicLevel}" VerticalAlignment="Center"
+                                                         Foreground="{StaticResource Positive}"/>
+                                        </DockPanel>
+                                        <TextBlock Style="{StaticResource Hint}" Text="Нажмите «Проверить» и скажите что-нибудь: полоска должна двигаться. Стоит на месте — выберите другой микрофон."/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
 
-                        <TextBlock Style="{StaticResource H}" Text="3. Как отвечать и профиль"/>
-                        <DockPanel Margin="0,16,0,8">
-                            <Button x:Name="FormatPresetsButton" DockPanel.Dock="Right" Style="{StaticResource Btn}" Click="FormatPresets_Click" Height="28" MinHeight="28">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="Шаблоны" VerticalAlignment="Center"/>
-                                    <TextBlock Text="&#xE70D;" Style="{StaticResource Icon}" FontSize="10" Foreground="{StaticResource Fg3}" Margin="8,0,0,0"/>
-                                </StackPanel>
-                            </Button>
-                            <TextBlock Text="Формат ответа" FontSize="13" Foreground="{StaticResource Fg2}" VerticalAlignment="Center"/>
-                        </DockPanel>
-                        <TextBox Text="{Binding Settings.AnswerFormat, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True"
-                                 TextWrapping="Wrap" Height="96" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"
-                                 Tag="Пусто — стандартный формат"/>
-                        <TextBlock Style="{StaticResource Hint}" Text="Опишите своими словами, как модель должна отвечать: длина, стиль, списки или сплошной текст, нужен ли код. Применяется ко всем ответам, включая задачи и скриншоты. Пусто — стандартный формат: тезис, пункты, код."/>
-                        <TextBlock Style="{StaticResource Label}" Text="Язык подсказок"/>
-                        <ComboBox ItemsSource="{x:Static core:Catalog.AnswerLanguages}" SelectedValuePath="Id" DisplayMemberPath="Title" SelectedValue="{Binding Settings.AnswerLanguage}"/>
-                        <DockPanel Margin="0,16,0,8">
-                            <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Height="28" MinHeight="28" Content="Из файла…" Click="ImportResume_Click"/>
-                            <TextBlock Text="Резюме" FontSize="13" Foreground="{StaticResource Fg2}" VerticalAlignment="Center"/>
-                        </DockPanel>
-                        <TextBox Text="{Binding Settings.Resume, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
-                                 Height="128" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"/>
-                        <DockPanel Margin="0,16,0,8">
-                            <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Height="28" MinHeight="28" Content="Из файла…" Click="ImportJob_Click"/>
-                            <TextBlock Text="Вакансия" FontSize="13" Foreground="{StaticResource Fg2}" VerticalAlignment="Center"/>
-                        </DockPanel>
-                        <TextBox Text="{Binding Settings.JobDescription, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
-                                 Height="96" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"/>
-                        <TextBlock Style="{StaticResource Label}" Text="Дополнительно о себе (грейд, что подчеркнуть)"/>
-                        <TextBox Text="{Binding Settings.ExtraInstructions, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
-                                 Height="64" VerticalContentAlignment="Top"/>
+                            <!-- Ответы -->
+                            <StackPanel x:Name="SecAnswers" Visibility="Collapsed">
+                                <TextBlock Style="{StaticResource Caption}" Text="ФОРМАТ ОТВЕТА"/>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <WrapPanel x:Name="FormatPresets" Margin="0,0,0,8"/>
+                                        <TextBox Text="{Binding Settings.AnswerFormat, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True"
+                                                 TextWrapping="Wrap" Height="84" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"
+                                                 Tag="Пусто — стандартный формат: тезис, 2–5 пунктов, код"/>
+                                        <TextBlock Style="{StaticResource Hint}" Text="Опишите своими словами, как отвечать: длина, стиль, списки или сплошной текст, нужен ли код. Применяется ко всем ответам, включая задачи и скриншоты."/>
+                                        <Border Height="1" Background="{StaticResource Line}" Margin="0,12,0,0"/>
+                                        <TextBlock Style="{StaticResource Label}" Text="Язык подсказок"/>
+                                        <ComboBox ItemsSource="{x:Static core:Catalog.AnswerLanguages}" SelectedValuePath="Id" DisplayMemberPath="Title" SelectedValue="{Binding Settings.AnswerLanguage}"/>
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Style="{StaticResource Caption}" Text="ПРОФИЛЬ"/>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <DockPanel Margin="0,0,0,8">
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource GhostBtn}" Height="24" MinHeight="24" FontSize="12" Content="Из файла…" Click="ImportResume_Click"/>
+                                            <TextBlock Text="Резюме" VerticalAlignment="Center"/>
+                                        </DockPanel>
+                                        <TextBox Text="{Binding Settings.Resume, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
+                                                 Height="110" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"/>
+                                        <DockPanel Margin="0,14,0,8">
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource GhostBtn}" Height="24" MinHeight="24" FontSize="12" Content="Из файла…" Click="ImportJob_Click"/>
+                                            <TextBlock Text="Вакансия" VerticalAlignment="Center"/>
+                                        </DockPanel>
+                                        <TextBox Text="{Binding Settings.JobDescription, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
+                                                 Height="84" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"/>
+                                        <TextBlock Style="{StaticResource Label}" Text="Дополнительно о себе"/>
+                                        <TextBox Text="{Binding Settings.ExtraInstructions, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap"
+                                                 Height="54" VerticalContentAlignment="Top" Tag="Грейд, что подчеркнуть, о чём не говорить…"/>
+                                        <TextBlock Style="{StaticResource Hint}" Text="Ответы опираются на ваш реальный опыт. Резюме и вакансия кэшируются у модели и не замедляют ответы."/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
 
-                        <TextBlock Style="{StaticResource H}" Text="4. Окно"/>
-                        <CheckBox Content="Скрывать окно при демонстрации экрана" IsChecked="{Binding Settings.HideFromCapture}"/>
-                        <TextBlock Style="{StaticResource Hint}" Text="Проверьте тестовым звонком: окна не должно быть видно у собеседника (Windows 10 2004 и новее)."/>
-                        <TextBlock Style="{StaticResource Label}" Text="Непрозрачность"/>
-                        <Slider Minimum="0.4" Maximum="1" Value="{Binding Settings.Opacity}"/>
-                        <TextBlock Style="{StaticResource Label}" Text="{Binding Settings.FontSize, StringFormat='Размер шрифта ответов: {0:0}'}"/>
-                        <Slider Minimum="11" Maximum="24" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding Settings.FontSize}"/>
+                            <!-- Окно -->
+                            <StackPanel x:Name="SecWindow" Visibility="Collapsed">
+                                <TextBlock Style="{StaticResource Caption}" Text="ВИДИМОСТЬ"/>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <CheckBox Margin="0" Content="Скрывать окно при демонстрации экрана" IsChecked="{Binding Settings.HideFromCapture}"/>
+                                        <TextBlock Style="{StaticResource Hint}" Text="Проверьте тестовым звонком: окна не должно быть видно у собеседника (Windows 10 2004 и новее)."/>
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Style="{StaticResource Caption}" Text="ВИД"/>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource Label}" Margin="0,0,0,8" Text="{Binding Settings.Opacity, StringFormat='Непрозрачность: {0:P0}'}"/>
+                                        <Slider Minimum="0.4" Maximum="1" Value="{Binding Settings.Opacity}"/>
+                                        <TextBlock Style="{StaticResource Label}" Text="{Binding Settings.FontSize, StringFormat='Размер текста ответов: {0:0}'}"/>
+                                        <Slider Minimum="11" Maximum="24" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding Settings.FontSize}"/>
+                                        <TextBlock Margin="0,6,0,0" FontSize="{Binding Settings.FontSize}" TextWrapping="Wrap">
+                                            <Run Text="Главная мысль ответа" FontWeight="SemiBold"/><Run Text=" и пояснение обычным текстом."/>
+                                        </TextBlock>
+                                        <Border Height="1" Background="{StaticResource Line}" Margin="0,12,0,0"/>
+                                        <TextBlock Style="{StaticResource Label}" Text="Размер окна"/>
+                                        <WrapPanel>
+                                            <Button Style="{StaticResource Btn}" Height="26" MinHeight="26" FontSize="12" Margin="0,0,6,0" Content="Маленькое" Tag="small" Click="SizePreset_Click"/>
+                                            <Button Style="{StaticResource Btn}" Height="26" MinHeight="26" FontSize="12" Margin="0,0,6,0" Content="Среднее" Tag="medium" Click="SizePreset_Click"/>
+                                            <Button Style="{StaticResource Btn}" Height="26" MinHeight="26" FontSize="12" Margin="0,0,6,0" Content="Большое" Tag="large" Click="SizePreset_Click"/>
+                                            <Button Style="{StaticResource Btn}" Height="26" MinHeight="26" FontSize="12" Content="Во всю высоту" Tag="tall" Click="SizePreset_Click"/>
+                                        </WrapPanel>
+                                        <TextBlock Style="{StaticResource Hint}" Text="Окно тянется за левый, правый и нижний край. Перемещается за шапку и пустое место внизу."/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
 
-                        <TextBlock Style="{StaticResource H}" Text="5. Горячие клавиши"/>
-                        <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,8" Text="Работают в любом приложении. Нажмите на сочетание и введите новое, Esc — отмена. Нужен Ctrl, Alt, Shift или Win (кроме F1–F12)."/>
-                        <StackPanel x:Name="HotKeysPanel"/>
-                        <Button Style="{StaticResource Btn}" Content="Сбросить" HorizontalAlignment="Left" Margin="0,12,0,0" Click="ResetHotKeys_Click"/>
+                            <!-- Клавиши -->
+                            <StackPanel x:Name="SecKeys" Visibility="Collapsed">
+                                <TextBlock Style="{StaticResource Caption}" Text="ГОРЯЧИЕ КЛАВИШИ"/>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel x:Name="HotKeysPanel"/>
+                                </Border>
+                                <TextBlock Style="{StaticResource Hint}" Margin="4,-8,0,12" Text="Работают в любом приложении. Нажмите на сочетание и введите новое, Esc — отмена. Нужен Ctrl, Alt, Shift или Win (кроме F1–F12)."/>
+                                <Button Style="{StaticResource Btn}" Content="Вернуть стандартные" HorizontalAlignment="Left" Click="ResetHotKeys_Click"/>
+                            </StackPanel>
 
-                        <TextBlock Style="{StaticResource H}" Text="6. Обновления"/>
-                        <DockPanel Margin="0,12,0,0">
-                            <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Проверить обновления" Click="CheckUpdates_Click"
-                                    IsEnabled="{Binding NotUpdating}"/>
-                            <TextBlock VerticalAlignment="Center" FontSize="13" Foreground="{StaticResource Fg2}">
-                                <Run Text="Установлена версия "/><Run Text="{Binding CurrentVersion, Mode=OneWay}" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource Fg}"/>
-                            </TextBlock>
-                        </DockPanel>
-                        <TextBlock Style="{StaticResource Hint}" Text="{Binding UpdateStatus}"
-                                   Visibility="{Binding UpdateStatus, Converter={StaticResource TextToVis}}"/>
-                        <StackPanel Visibility="{Binding HasUpdate, Converter={StaticResource BoolToVis}}" Margin="0,12,0,0">
-                            <Button Style="{StaticResource PrimaryBtn}" HorizontalAlignment="Left" Height="36" Padding="16,0"
-                                    Content="{Binding UpdateButtonText}" Click="InstallUpdate_Click" IsEnabled="{Binding NotUpdating}"/>
-                            <ProgressBar Margin="0,12,0,0" Minimum="0" Maximum="100" Value="{Binding UpdateProgress}"
-                                         Visibility="{Binding IsUpdating, Converter={StaticResource BoolToVis}}"/>
-                            <TextBlock Style="{StaticResource Hint}" Text="RedCast скачает новую версию с GitHub, заменит свои файлы и перезапустится. Настройки, резюме и модель речи сохранятся."/>
-                        </StackPanel>
-
-                        <Border Height="1" Background="{StaticResource Line}" Margin="0,32,0,16"/>
-                        <StackPanel Orientation="Horizontal">
-                            <Button Style="{StaticResource Btn}" Click="OpenSessions_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xE8B7;" Style="{StaticResource Icon}" Foreground="{StaticResource Fg2}" Margin="0,0,8,0"/>
-                                    <TextBlock Text="Записи собеседований" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource GhostBtn}" Content="Выйти из RedCast" Margin="8,0,0,0" Click="Quit_Click"/>
-                        </StackPanel>
-                    </StackPanel>
-                </ScrollViewer>
+                            <!-- О программе -->
+                            <StackPanel x:Name="SecAbout" Visibility="Collapsed">
+                                <TextBlock Style="{StaticResource Caption}" Text="ОБНОВЛЕНИЯ"/>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Проверить" Click="CheckUpdates_Click"
+                                                    Height="28" MinHeight="28" FontSize="12" IsEnabled="{Binding NotUpdating}"/>
+                                            <TextBlock VerticalAlignment="Center">
+                                                <Run Text="RedCast "/><Run Text="{Binding CurrentVersion, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </DockPanel>
+                                        <TextBlock Style="{StaticResource Hint}" Text="{Binding UpdateStatus}"
+                                                   Visibility="{Binding UpdateStatus, Converter={StaticResource TextToVis}}"/>
+                                        <StackPanel Visibility="{Binding HasUpdate, Converter={StaticResource BoolToVis}}" Margin="0,12,0,0">
+                                            <Button Style="{StaticResource PrimaryBtn}" HorizontalAlignment="Left" Height="32" Padding="14,0"
+                                                    Content="{Binding UpdateButtonText}" Click="InstallUpdate_Click" IsEnabled="{Binding NotUpdating}"/>
+                                            <ProgressBar Margin="0,12,0,0" Minimum="0" Maximum="100" Value="{Binding UpdateProgress}"
+                                                         Visibility="{Binding IsUpdating, Converter={StaticResource BoolToVis}}"/>
+                                            <TextBlock Style="{StaticResource Hint}" Text="RedCast скачает новую версию с GitHub, заменит свои файлы и перезапустится. Настройки, резюме и модель речи сохранятся."/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <Border Style="{StaticResource Card}">
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Right" Style="{StaticResource GhostBtn}" Content="Выйти из RedCast" Click="Quit_Click"
+                                                Height="28" MinHeight="28" FontSize="12"/>
+                                        <Button Style="{StaticResource Btn}" Click="OpenSessions_Click" HorizontalAlignment="Left" Height="28" MinHeight="28" FontSize="12">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#xE8B7;" Style="{StaticResource Icon}" FontSize="13" Foreground="{StaticResource Fg2}" Margin="0,0,8,0"/>
+                                                <TextBlock Text="Записи собеседований" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </DockPanel>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+                    </ScrollViewer>
+                </Grid>
                 </Grid>
             </DockPanel>
         </Grid>

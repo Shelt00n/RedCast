@@ -2,27 +2,30 @@ import SwiftUI
 
 // MARK: - Tokens
 
-/// Graphite ramp + one accent: the on-air tally red of the logo. Same values as windows/App.xaml.
+/// «Broadcast console»: smoked graphite glass + one on-air tally red. Same values as windows/App.xaml.
 enum Theme {
-    static let bg = Color(hex: 0x141415, opacity: 0.96)
-    static let bgDeep = Color(hex: 0x0F0F10)
-    static let surface = Color(hex: 0x1B1B1D)
-    static let raised = Color(hex: 0x242426)
-    static let hover = Color(hex: 0x2C2C2F)
-    static let line = Color(hex: 0xEDEDED, opacity: 0.08)
-    static let lineStrong = Color(hex: 0xEDEDED, opacity: 0.15)
-    static let fg = Color(hex: 0xEDEDED)
-    static let fg2 = Color(hex: 0xA1A1A6)
-    static let fg3 = Color(hex: 0x85858B)
-    static let idle = Color(hex: 0x5C5C61)
-    static let onFg = Color(hex: 0x141415)
-    static let accent = Color(hex: 0xE3141F)
-    static let accentSoft = Color(hex: 0xE3141F, opacity: 0.35)
-    static let positive = Color(hex: 0x4CC38A)
-    static let warning = Color(hex: 0xE8B04B)
-    static let negative = Color(hex: 0xF07075)
+    static let glass = Color(hex: 0x121214, opacity: 0.82)   // tint over the blurred desktop
+    static let bgDeep = Color(hex: 0x0C0C0E, opacity: 0.55)  // dock / inset wells
+    static let surface = Color(hex: 0x1C1C20)
+    static let raised = Color(hex: 0x26262B)
+    static let hover = Color(hex: 0x303036)
+    static let line = Color(hex: 0xFFFFFF, opacity: 0.07)
+    static let lineStrong = Color(hex: 0xFFFFFF, opacity: 0.13)
+    static let fg = Color(hex: 0xF2F2F4)
+    static let fg2 = Color(hex: 0xA9A9B2)
+    static let fg3 = Color(hex: 0x76767F)
+    static let idle = Color(hex: 0x55555C)
+    static let onFg = Color(hex: 0x121214)
+    static let accent = Color(hex: 0xEE2B36)
+    static let accentSoft = Color(hex: 0xEE2B36, opacity: 0.16)
+    static let accentLine = Color(hex: 0xEE2B36, opacity: 0.55)
+    static let positive = Color(hex: 0x3DD68C)
+    static let warning = Color(hex: 0xF5B54A)
+    static let negative = Color(hex: 0xFF6B6B)
 
+    static let radius: CGFloat = 14
     static let ease = Animation.easeOut(duration: 0.14)
+    static let spring = Animation.spring(response: 0.3, dampingFraction: 0.85)
 }
 
 extension Color {
@@ -35,18 +38,26 @@ extension Color {
     }
 }
 
+extension View {
+    /// Rounded surface card with a hairline.
+    func card(_ fill: Color = Theme.surface, radius: CGFloat = 12, stroke: Color = Theme.line) -> some View {
+        background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(stroke, lineWidth: 1))
+    }
+}
+
 // MARK: - Buttons
 
-/// primary — off-white fill (one per screen); secondary — raised surface + hairline; ghost — no fill until hover.
-/// `live` lights a red hairline (recording / on air), `selected` marks a segment.
+/// primary — light fill (one per screen); secondary — raised surface; ghost — no fill until hover;
+/// live — on-air red tint (recording). `selected` marks a segment.
 struct RCButtonStyle: ButtonStyle {
-    enum Kind { case primary, secondary, ghost }
+    enum Kind { case primary, secondary, ghost, live }
     var kind: Kind = .secondary
-    var live = false
     var selected = false
     var height: CGFloat = 32
     var padding: CGFloat = 12
     var fontSize: CGFloat = 13
+    var radius: CGFloat = 9
 
     func makeBody(configuration: Configuration) -> some View {
         RCButtonBody(configuration: configuration, style: self)
@@ -64,37 +75,38 @@ private struct RCButtonBody: View {
         case .primary: return hover ? .white : Theme.fg
         case .secondary: return hover ? Theme.hover : Theme.raised
         case .ghost: return style.selected ? Theme.hover : (hover ? Theme.raised : .clear)
+        case .live: return hover ? Color(hex: 0xEE2B36, opacity: 0.24) : Theme.accentSoft
         }
     }
 
     private var foreground: Color {
         switch style.kind {
         case .primary: return Theme.onFg
-        case .secondary: return Theme.fg
+        case .secondary, .live: return Theme.fg
         case .ghost: return style.selected || hover ? Theme.fg : Theme.fg2
         }
     }
 
     private var stroke: Color {
-        if style.live { return Theme.accentSoft }
         switch style.kind {
         case .primary: return .clear
         case .secondary: return Theme.line
         case .ghost: return style.selected ? Theme.line : .clear
+        case .live: return Theme.accentLine
         }
     }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: style.radius, style: .continuous)
         configuration.label
-            .font(.system(size: style.fontSize, weight: style.kind == .primary ? .medium : .regular))
+            .font(.system(size: style.fontSize, weight: style.kind == .primary ? .semibold : .medium))
             .foregroundStyle(foreground)
             .padding(.horizontal, style.padding)
             .frame(minHeight: style.height)
             .background(shape.fill(fill))
             .overlay(shape.strokeBorder(stroke, lineWidth: 1))
             .contentShape(shape)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .opacity(isEnabled ? 1 : 0.4)
             .onHover { hover = $0 }
             .animation(Theme.ease, value: hover)
@@ -102,32 +114,34 @@ private struct RCButtonBody: View {
     }
 }
 
-/// 32×32 ghost button with one SF Symbol.
+/// Ghost button with one SF Symbol.
 struct IconButton: View {
     let symbol: String
     let help: String
     var size: CGFloat = 13
+    var box: CGFloat = 30
     var tint: Color? = nil
+    var selected = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: size, weight: .regular))
-                .foregroundStyle(tint ?? Theme.fg2)
-                .frame(width: 32, height: 32)
+                .font(.system(size: size, weight: .medium))
+                .foregroundStyle(tint ?? (selected ? Theme.fg : Theme.fg2))
+                .frame(width: box, height: box)
         }
-        .buttonStyle(RCButtonStyle(kind: .ghost, padding: 0))
+        .buttonStyle(RCButtonStyle(kind: .ghost, selected: selected, height: box, padding: 0, radius: 8))
         .help(help)
     }
 }
 
-/// Icon + label for secondary buttons; the icon stays in the muted role.
+/// Icon + label; the icon stays in the muted role.
 struct IconLabel: View {
     let symbol: String
     let title: String
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             Image(systemName: symbol).foregroundStyle(Theme.fg2)
             Text(title)
         }
@@ -138,59 +152,125 @@ struct IconLabel: View {
 struct Segmented<T: Hashable>: View {
     let selection: T
     let items: [(value: T, title: String)]
+    var height: CGFloat = 26
     let onSelect: (T) -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 2) {
             ForEach(items.indices, id: \.self) { i in
                 Button(items[i].title) { onSelect(items[i].value) }
-                    .buttonStyle(RCButtonStyle(kind: .ghost, selected: items[i].value == selection, height: 28))
+                    .buttonStyle(RCButtonStyle(kind: .ghost, selected: items[i].value == selection,
+                                               height: height, padding: 10, fontSize: 12, radius: 7))
             }
         }
-        .padding(1)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.bgDeep))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Theme.bgDeep))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
     }
 }
 
 // MARK: - Signature
 
-/// The on-air tally: red while RedCast listens or records. The ring means the interviewer is speaking right now.
+/// The on-air tally: red while RedCast listens or records, with a slow pulse; amber while starting.
 struct Tally: View {
     var on: Bool
     var starting = false
-    var ring = false
+    var size: CGFloat = 9
+    @State private var pulse = false
 
     var body: some View {
         ZStack {
-            if ring {
-                Circle().strokeBorder(Theme.accentSoft, lineWidth: 2)
+            if on {
+                Circle()
+                    .fill(Theme.accent.opacity(0.35))
+                    .frame(width: size * 2.2, height: size * 2.2)
+                    .scaleEffect(pulse ? 1 : 0.45)
+                    .opacity(pulse ? 0 : 1)
             }
             Circle()
                 .fill(on ? Theme.accent : (starting ? Theme.warning : Theme.idle))
-                .frame(width: 8, height: 8)
+                .frame(width: size, height: size)
+                .shadow(color: on ? Theme.accent.opacity(0.7) : .clear, radius: 4)
         }
-        .frame(width: 16, height: 16)
+        .frame(width: size * 2.2, height: size * 2.2)
+        .onAppear { animate() }
+        .onChange(of: on) { animate() }
+    }
+
+    private func animate() {
+        pulse = false
+        guard on else { return }
+        withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) { pulse = true }
     }
 }
 
-/// Keyboard shortcut drawn as a keycap.
+/// A short horizontal level meter (5 segments, like a console channel strip).
+struct LevelMeter5: View {
+    var level: Float
+    var active = true
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<5, id: \.self) { i in
+                let lit = active && level > Float(i) * 0.17 + 0.03
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(lit ? (i == 4 ? Theme.warning : Theme.positive) : Theme.lineStrong)
+                    .frame(width: 3, height: 4 + CGFloat(i) * 2)
+            }
+        }
+        .frame(height: 12, alignment: .bottom)
+        .animation(.linear(duration: 0.08), value: level)
+    }
+}
+
+/// Keyboard shortcut drawn as a small keycap.
 struct KeyCap: View {
     let text: String
     var active = false
+    var minWidth: CGFloat = 0
+    var size: CGFloat = 11
 
     var body: some View {
         Text(text)
-            .font(.system(size: 12, design: .monospaced))
+            .font(.system(size: size, weight: .medium, design: .rounded))
             .foregroundStyle(active ? Theme.fg : Theme.fg2)
-            .padding(.horizontal, 8)
-            .frame(minWidth: 144, minHeight: 28)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.raised))
-            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .padding(.horizontal, 6)
+            .frame(minWidth: minWidth, minHeight: size + 9)
+            .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Theme.raised))
+            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .strokeBorder(active ? Theme.fg2 : Theme.lineStrong, lineWidth: 1))
             .overlay(alignment: .bottom) {
-                // a slightly heavier bottom edge, like a physical key
-                Rectangle().fill(Theme.lineStrong).frame(height: 1).padding(.horizontal, 4)
+                Rectangle().fill(Theme.lineStrong).frame(height: 1).padding(.horizontal, 3)
             }
+    }
+}
+
+/// Three dots while the model thinks.
+struct ThinkingDots: View {
+    @State private var phase = 0
+    private let timer = Timer.publish(every: 0.35, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(Theme.fg2)
+                    .frame(width: 6, height: 6)
+                    .opacity(phase == i ? 1 : 0.3)
+            }
+        }
+        .onReceive(timer) { _ in phase = (phase + 1) % 3 }
+        .animation(.easeInOut(duration: 0.25), value: phase)
+    }
+}
+
+/// mm:ss since a date, ticking every half second.
+struct ElapsedText: View {
+    let since: Date
+    var body: some View {
+        TimelineView(.periodic(from: since, by: 0.5)) { ctx in
+            let s = max(0, Int(ctx.date.timeIntervalSince(since)))
+            Text(String(format: "%d:%02d", s / 60, s % 60)).monospacedDigit()
+        }
     }
 }

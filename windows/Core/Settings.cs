@@ -43,23 +43,23 @@ public static class Catalog
 
     public static readonly Option[] Models =
     {
-        new("claude-opus-5-5", "Claude Opus 5.5 — самый умный (по умолчанию)"),
-        new("claude-sonnet-5-5", "Claude Sonnet 5.5 — быстрее"),
-        new("claude-haiku-5-5", "Claude Haiku 5.5 — максимально быстрый"),
+        new("claude-opus-5-5", "Opus 5.5 — самый умный · ответ через ~2 с"),
+        new("claude-sonnet-5-5", "Sonnet 5.5 — быстрый и умный · ~1 с"),
+        new("claude-haiku-5-5", "Haiku 5.5 — самый быстрый · ~1 с"),
     };
 
     public static readonly Option[] Efforts =
     {
-        new("low", "low — быстрый ответ (рекомендуется)"),
-        new("medium", "medium — глубже, медленнее"),
-        new("high", "high — для сложных задач"),
+        new("low", "Быстро"),
+        new("medium", "Глубже"),
+        new("high", "Максимум"),
     };
 
     public static readonly Option[] SpeechLanguages =
     {
+        new("auto", "Русский и украинский (авто)"),
         new("ru", "Русский"),
         new("uk", "Українська"),
-        new("auto", "Автоопределение (ru / uk / en)"),
     };
 
     public static readonly Option[] AnswerLanguages =
@@ -72,9 +72,9 @@ public static class Catalog
 
     public static readonly Option[] WhisperModels =
     {
-        new("large-v3-turbo-q5_0", "Whisper Large v3 Turbo (сжатая, 0.6 ГБ) — рекомендуется"),
-        new("large-v3-turbo", "Whisper Large v3 Turbo (полная, 1.6 ГБ) — максимум точности, нужна видеокарта"),
-        new("small", "Whisper Small (0.5 ГБ) — для слабых ПК, точность ниже"),
+        new("large-v3-turbo-q5_0", "Large v3 Turbo сжатая · 0,6 ГБ (рекомендуется)"),
+        new("large-v3-turbo", "Large v3 Turbo · 1,6 ГБ (нужна видеокарта)"),
+        new("small", "Small · 0,5 ГБ (для слабых ПК, точность ниже)"),
     };
 }
 
@@ -180,11 +180,18 @@ public sealed class AppSettings : Observable
     public string ClaudePath { get => _claudePath; set => Set(ref _claudePath, value); }
 
     // Speech
-    string _speechLanguage = "ru";
+    string _speechLanguage = "auto";
     public string SpeechLanguage { get => _speechLanguage; set => Set(ref _speechLanguage, value); }
 
     string _whisperModel = "large-v3-turbo-q5_0";
     public string WhisperModel { get => _whisperModel; set => Set(ref _whisperModel, value); }
+
+    bool _preciseTerms;
+    /// <summary>Give Whisper the terms as a prompt: exact spelling of terms, a bit slower per phrase.</summary>
+    public bool PreciseTerms { get => _preciseTerms; set => Set(ref _preciseTerms, value); }
+
+    /// <summary>2.7: «auto» picks only between ru / uk / en and keeps one language per phrase → made the default once.</summary>
+    public bool SpeechLanguageAuto27 { get; set; }
 
     bool _useGpu = true;
     public bool UseGpu { get => _useGpu; set => Set(ref _useGpu, value); }
@@ -264,7 +271,15 @@ public sealed class AppSettings : Observable
             if (File.Exists(FilePath))
             {
                 var s = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), JsonOptions);
-                if (s != null) return s;
+                if (s != null)
+                {
+                    if (!s.SpeechLanguageAuto27)
+                    {
+                        s.SpeechLanguageAuto27 = true;
+                        s.SpeechLanguage = "auto";
+                    }
+                    return s;
+                }
             }
         }
         catch
@@ -272,7 +287,7 @@ public sealed class AppSettings : Observable
             // Broken file → defaults, but keep a copy instead of overwriting it with the next Save().
             try { File.Copy(FilePath, FilePath + ".broken", overwrite: true); } catch { }
         }
-        return new AppSettings();
+        return new AppSettings { SpeechLanguageAuto27 = true };
     }
 
     public void Save()

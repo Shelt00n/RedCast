@@ -174,7 +174,10 @@ public sealed class AnthropicApiClient : ILLMClient
 
 /// <summary>
 /// Claude Code CLI in headless mode — uses the Claude Pro/Max subscription login.
-/// A process is started in advance and waits for the prompt on stdin.
+/// A process is started in advance and waits for the question on stdin, so the CLI start-up
+/// (1–2 s) is not on the critical path. stdin is stream-json: with plain text input the CLI gives up
+/// after 3 s without data («no stdin data received in 3s») and exits, so the pre-started process was
+/// always dead by the time the question came and every answer paid the full cold start.
 /// </summary>
 public sealed class ClaudeCodeClient : ILLMClient
 {
@@ -229,7 +232,7 @@ public sealed class ClaudeCodeClient : ILLMClient
 
     static string Key(LLMRequest r) => $"{r.Model}|{r.Effort}|{r.System.GetHashCode()}";
 
-    Spawned Spawn(LLMRequest r, bool jsonInput)
+    Spawned Spawn(LLMRequest r)
     {
         var exe = Executable();
         var sysFile = Path.Combine(_workDir, $"system-{Guid.NewGuid():N}.txt");
@@ -239,9 +242,8 @@ public sealed class ClaudeCodeClient : ILLMClient
         {
             "-p", "--tools", "", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
             "--no-session-persistence", "--strict-mcp-config", "--model", r.Model, "--effort", r.Effort,
-            "--system-prompt-file", sysFile,
+            "--system-prompt-file", sysFile, "--input-format", "stream-json",
         };
-        if (jsonInput) args.AddRange(new[] { "--input-format", "stream-json" });
 
         var psi = new ProcessStartInfo
         {
@@ -293,18 +295,30 @@ public sealed class ClaudeCodeClient : ILLMClient
         {
             if (_warm != null && _warm.Key == Key(r) && !_warm.Proc.HasExited) return;
             try { _warm?.Proc.Kill(true); } catch { }
-            try { _warm = Spawn(r, false); } catch { _warm = null; }
+            try { _warm = Spawn(r); } catch { _warm = null; }
+        }
+    }
+
+    /// <summary>Is Claude Code installed (readiness checklist)?</summary>
+    public bool IsInstalled { get { try { Executable(); return true; } catch { return false; } } }
+
+    /// <summary>Stop the waiting process (app quits).</summary>
+    public void Shutdown()
+    {
+        lock (_lock)
+        {
+            try { _warm?.Proc.Kill(true); } catch { }
+            _warm = null;
         }
     }
 
     Spawned Take(LLMRequest r)
     {
-        if (r.ImageJpeg != null) return Spawn(r, true);
         Spawned? c;
         lock (_lock) { c = _warm; _warm = null; }
         if (c != null && c.Key == Key(r) && !c.Proc.HasExited) return c;
         try { c?.Proc.Kill(true); } catch { }
-        return Spawn(r, false);
+        return Spawn(r);
     }
 
     public async Task StreamAsync(LLMRequest r, Action<string> onText, CancellationToken ct)
@@ -313,20 +327,21 @@ public sealed class ClaudeCodeClient : ILLMClient
         _ = Task.Run(() => Prewarm(r));   // prepare the next one right away
         using var reg = ct.Register(() => { try { sp.Proc.Kill(true); } catch { } });
 
-        if (r.ImageJpeg != null)
+        // The question as one stream-json user message, then close stdin: the CLI answers and exits.
+        var msg = new JsonObject
         {
-            var msg = new JsonObject
-            {
-                ["type"] = "user",
-                ["message"] = new JsonObject { ["role"] = "user", ["content"] = r.ContentBlocks() },
-            };
+            ["type"] = "user",
+            ["message"] = new JsonObject { ["role"] = "user", ["content"] = r.ContentBlocks() },
+        };
+        try
+        {
             await sp.Proc.StandardInput.WriteLineAsync(msg.ToJsonString());
+            sp.Proc.StandardInput.Close();
         }
-        else
+        catch (IOException)
         {
-            await sp.Proc.StandardInput.WriteAsync(r.Text);
+            throw new LLMException("Claude Code завершился раньше времени. Проверьте вход: claude → /login.");
         }
-        sp.Proc.StandardInput.Close();
 
         var stderrTask = sp.Proc.StandardError.ReadToEndAsync();
         bool streamed = false;

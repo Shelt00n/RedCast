@@ -93,7 +93,7 @@ public partial class App : Application
     {
         var menu = new ContextMenuStrip();
         menu.Items.Add("Показать окно", null, (_, _) => _window?.ShowWindow());
-        menu.Items.Add("Старт / стоп (Авто)", null, (_, _) => AppState.Shared.ToggleListening());
+        menu.Items.Add("Начать / остановить (Авто)", null, (_, _) => AppState.Shared.ToggleListening());
         menu.Items.Add("Записать интервьюера → ответ", null, (_, _) => AppState.Shared.ToggleRecord(Speaker.Interviewer));
         menu.Items.Add("Записать меня → ответ", null, (_, _) => AppState.Shared.ToggleRecord(Speaker.Me));
         menu.Items.Add("Решить задачу с экрана", null, (_, _) => AppState.Shared.SolveScreenshot());
@@ -145,6 +145,7 @@ public partial class App : Application
     {
         IsQuitting = true;
         try { AppState.Shared.Stop(); } catch { }
+        try { AppState.Shared.Shutdown(); } catch { }
         AppSettings.Shared.Save();
         if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
         Shutdown();
