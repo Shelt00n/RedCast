@@ -324,40 +324,45 @@ final class OverlayController: ObservableObject {
 
 // MARK: - AppKit helpers
 
-/// Empty space that moves the window (native drag: smooth, snaps like any window).
-/// Double click runs `onDoubleClick` (the header folds the window into a strip).
-struct WindowDragArea: NSViewRepresentable {
+/// Dragging this view moves the window. Double click runs `onDoubleClick` (the header folds the
+/// window into a strip). Buttons and text fields inside keep their own clicks.
+///
+/// A SwiftUI gesture, not an AppKit view in the background: NSHostingView claims every click
+/// over SwiftUI content (labels, fills, content shapes), so a background NSView never receives
+/// mouseDown and the window did not move at all.
+struct WindowDragModifier: ViewModifier {
     var onDoubleClick: (() -> Void)?
+    @State private var start: (origin: NSPoint, mouse: NSPoint)?
 
-    final class DragView: NSView {
-        var onDoubleClick: (() -> Void)?
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-        override var mouseDownCanMoveWindow: Bool { true }
-        override func mouseDown(with event: NSEvent) {
-            if event.clickCount == 2, let onDoubleClick {
-                onDoubleClick()
-                return
-            }
-            window?.performDrag(with: event)
-        }
+    func body(content: Content) -> some View {
+        content
+            .gesture(
+                DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                    .onChanged { _ in
+                        guard let w = OverlayController.shared.window else { return }
+                        let mouse = Self.mouseOnScreen(w)
+                        if start == nil { start = (w.frame.origin, mouse) }
+                        guard let s = start else { return }
+                        w.setFrameOrigin(NSPoint(x: s.origin.x + mouse.x - s.mouse.x,
+                                                 y: s.origin.y + mouse.y - s.mouse.y))
+                    }
+                    .onEnded { _ in start = nil }
+            )
+            .gesture(TapGesture(count: 2).onEnded { onDoubleClick?() },
+                     including: onDoubleClick == nil ? .subviews : .all)
     }
 
-    func makeNSView(context: Context) -> DragView {
-        let v = DragView()
-        v.onDoubleClick = onDoubleClick
-        return v
-    }
-
-    func updateNSView(_ nsView: DragView, context: Context) {
-        nsView.onDoubleClick = onDoubleClick
+    /// Cursor position in screen coordinates: stable while the window itself moves
+    /// (gesture values are window-relative and would shift with it).
+    static func mouseOnScreen(_ w: NSWindow) -> NSPoint {
+        NSEvent.mouseLocation
     }
 }
 
 extension View {
-    /// The empty background of this view moves the window. Put labels on top with
-    /// `.allowsHitTesting(false)` so they move it too.
+    /// Dragging anywhere on this view (except its buttons and fields) moves the window.
     func windowDrag(onDoubleClick: (() -> Void)? = nil) -> some View {
-        background(WindowDragArea(onDoubleClick: onDoubleClick))
+        modifier(WindowDragModifier(onDoubleClick: onDoubleClick))
     }
 }
 
